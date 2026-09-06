@@ -385,7 +385,7 @@ Note: `package-lock.json` is not committed by default to allow any package manag
 ### Universal App Example
 
 `examples/universal-app` is a Vite React app that imports `matchPackageNames`
-and `isOverBroadPattern` from `src/index.js` and lets you try a pattern against
+and `isOverBroadPattern` from `src/patterns.js` and lets you try a pattern against
 a list of package names, including the over-broad check that protects bulk
 operations. The same static build is used by:
 

@@ -1,5 +1,8 @@
 import { createElement as h, useMemo, useState } from 'react';
-import { isOverBroadPattern, matchPackageNames } from '../../../src/index.js';
+import {
+  isOverBroadPattern,
+  matchPackageNames,
+} from '../../../src/patterns.js';
 
 const repositoryUrl =
   import.meta.env.VITE_REPOSITORY_URL ??
