@@ -1,9 +1,9 @@
 import { createElement as h, useMemo, useState } from 'react';
-import { add, multiply } from '../../../src/index.js';
+import { isOverBroadPattern, matchPackageNames } from '../../../src/index.js';
 
 const repositoryUrl =
   import.meta.env.VITE_REPOSITORY_URL ??
-  'https://github.com/link-foundation/js-ai-driven-development-pipeline-template';
+  'https://github.com/link-foundation/gh-manager';
 
 const desktopTargets = [
   {
@@ -20,20 +20,34 @@ const desktopTargets = [
   },
 ];
 
-function parseInput(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
+function parseNames(value) {
+  return value
+    .split(/[\s,]+/)
+    .map((name) => name.trim())
+    .filter(Boolean);
 }
 
-function NumberField({ id, label, value, onChange }) {
+function selectPackages(packageNames, pattern, regex) {
+  try {
+    return {
+      matched: matchPackageNames(packageNames, { pattern, regex }),
+      overBroad: isOverBroadPattern({ pattern, regex }),
+      error: null,
+    };
+  } catch (error) {
+    return { matched: [], overBroad: false, error: error.message };
+  }
+}
+
+function TextField({ id, label, value, onChange }) {
   return h(
     'label',
-    { className: 'number-field', htmlFor: id },
+    { className: 'pattern-field', htmlFor: id },
     h('span', null, label),
     h('input', {
       id,
-      inputMode: 'decimal',
-      type: 'number',
+      type: 'text',
+      spellCheck: false,
       value,
       onChange: (event) => onChange(event.target.value),
     })
@@ -49,64 +63,98 @@ function ResultTile({ label, value, tone }) {
   );
 }
 
+function MatchRow({ name, matched }) {
+  return h(
+    'li',
+    { className: matched ? 'match-hit' : 'match-miss' },
+    h('span', null, name),
+    h('small', null, matched ? 'selected' : 'skipped')
+  );
+}
+
 function DownloadTarget({ label, detail }) {
   return h('li', null, h('span', null, label), h('small', null, detail));
 }
 
 export function App() {
-  const [left, setLeft] = useState('2');
-  const [right, setRight] = useState('3');
-  const parsedLeft = parseInput(left);
-  const parsedRight = parseInput(right);
-  const addition = useMemo(
-    () => add(parsedLeft, parsedRight),
-    [parsedLeft, parsedRight]
+  const [pattern, setPattern] = useState('box*');
+  const [names, setNames] = useState('box, box-dind, gh-manager, deep-index');
+  const [regex, setRegex] = useState(false);
+  const packageNames = useMemo(() => parseNames(names), [names]);
+  const selection = useMemo(
+    () => selectPackages(packageNames, pattern, regex),
+    [packageNames, pattern, regex]
   );
-  const multiplication = useMemo(
-    () => multiply(parsedLeft, parsedRight),
-    [parsedLeft, parsedRight]
-  );
+  const matched = new Set(selection.matched);
 
   return h(
     'main',
     { className: 'app-shell' },
     h(
       'section',
-      { className: 'workspace', 'aria-labelledby': 'calculator-title' },
+      { className: 'workspace', 'aria-labelledby': 'matcher-title' },
       h(
         'div',
-        { className: 'calculator-panel' },
+        { className: 'matcher-panel' },
         h('p', { className: 'eyebrow' }, 'Package function UI'),
-        h('h1', { id: 'calculator-title' }, 'Universal Example App'),
+        h('h1', { id: 'matcher-title' }, 'Which packages match?'),
         h(
           'div',
           { className: 'input-grid' },
-          h(NumberField, {
-            id: 'left-number',
-            label: 'First value',
-            value: left,
-            onChange: setLeft,
+          h(TextField, {
+            id: 'pattern-input',
+            label: 'Pattern (--pattern)',
+            value: pattern,
+            onChange: setPattern,
           }),
-          h(NumberField, {
-            id: 'right-number',
-            label: 'Second value',
-            value: right,
-            onChange: setRight,
+          h(TextField, {
+            id: 'names-input',
+            label: 'Known package names',
+            value: names,
+            onChange: setNames,
           })
+        ),
+        h(
+          'label',
+          { className: 'mode-toggle', htmlFor: 'regex-toggle' },
+          h('input', {
+            id: 'regex-toggle',
+            type: 'checkbox',
+            checked: regex,
+            onChange: (event) => setRegex(event.target.checked),
+          }),
+          h('span', null, 'Read the pattern as a regular expression (--regex)')
         ),
         h(
           'div',
           { className: 'results-grid', 'aria-live': 'polite' },
           h(ResultTile, {
-            label: 'Addition',
-            value: addition,
+            label: 'Matched',
+            value: selection.matched.length,
             tone: 'green',
           }),
           h(ResultTile, {
-            label: 'Multiplication',
-            value: multiplication,
+            label: 'Skipped',
+            value: packageNames.length - selection.matched.length,
             tone: 'blue',
           })
+        ),
+        selection.error
+          ? h('p', { className: 'notice notice-error' }, selection.error)
+          : null,
+        selection.overBroad
+          ? h(
+              'p',
+              { className: 'notice' },
+              'This pattern selects every package, so gh-manager refuses it unless you pass --all.'
+            )
+          : null,
+        h(
+          'ul',
+          { className: 'match-list' },
+          packageNames.map((name) =>
+            h(MatchRow, { key: name, name, matched: matched.has(name) })
+          )
         )
       ),
       h(
