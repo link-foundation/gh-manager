@@ -45,14 +45,16 @@ describe('universal React example app', () => {
     expect(packageJson.scripts['mobile:ios:run']).toContain('cap run ios');
   });
 
-  it('renders a visual UI using the package add and multiply functions', () => {
+  it('renders a visual UI using the package pattern matcher', () => {
     const appSource = readText(appSourcePath);
 
     expect(appSource).toContain("from '../../../src/index.js'");
-    expect(appSource).toContain('add(parsedLeft, parsedRight)');
-    expect(appSource).toContain('multiply(parsedLeft, parsedRight)');
-    expect(appSource).toContain('Addition');
-    expect(appSource).toContain('Multiplication');
+    expect(appSource).toContain(
+      'matchPackageNames(packageNames, { pattern, regex })'
+    );
+    expect(appSource).toContain('isOverBroadPattern({ pattern, regex })');
+    expect(appSource).toContain('Matched');
+    expect(appSource).toContain('Skipped');
   });
 
   it('shares the Vite build output with Capacitor and GitHub Pages', () => {
