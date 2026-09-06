@@ -1,33 +1,313 @@
-# js-ai-driven-development-pipeline-template
+# gh-manager
 
-A comprehensive template for AI-driven JavaScript/TypeScript development with full CI/CD pipeline support.
+A globally installable CLI for the GitHub package operations the REST and
+GraphQL APIs do not expose: flipping container package visibility, deleting
+packages in bulk, and managing package-level permissions.
 
-This repository publishes the real test package
-`@link-foundation/example-package-name` so the template release pipeline is
-validated end to end with npm trusted publishing.
+GitHub has no endpoint for any of those three. The only place they exist is the
+web UI, so gh-manager drives a real browser for the writes, and uses the API for
+the reads and for verifying that a write actually landed.
+
+```bash
+npm i -g @link-foundation/gh-manager
+gh-manager auth login
+gh-manager package public box box-dind --org link-foundation
+```
 
 ## Features
 
-- **Multi-runtime support**: Works with Bun, Node.js, and Deno
-- **Universal testing**: Uses [test-anywhere](https://github.com/link-foundation/test-anywhere) for cross-runtime tests
-- **Automated releases**: Changesets-based versioning with GitHub Actions
-- **Optional Docker Hub publishing**: Docker images can be published after the matching npm version is visible
-- **Universal app example**: React UI for the package API with GitHub Pages, Electron, and Capacitor build paths
-- **Code quality**: ESLint + Prettier with pre-commit hooks via Husky
-- **Package manager agnostic**: Works with bun, npm, yarn, pnpm, and deno
-- **Broken link checks**: Automated link validation with [lychee](https://github.com/lycheeverse/lychee-action) and Web Archive fallback suggestions
+- **One login, reused**: a dedicated Chrome profile in `~/.gh-manager/`
+  survives SSO and 2FA, which a personal access token cannot carry
+- **Hybrid strategy**: API reads, browser writes, API re-read to verify
+- **No false "no packages found"**: an empty API listing falls back to
+  enumerating the packages the browser can see
+- **Safe bulk operations**: patterns are resolved against the packages that
+  exist, the resolved list is always printed, and nothing destructive runs
+  without a confirmation or an explicit `--yes`
+- **Meaningful exit codes**: a pipeline can branch on the reason, not the text
+- **Loud failures**: an unexpected page writes a screenshot and the HTML to
+  `~/.gh-manager/logs/` and exits non-zero
 
-## Quick Start
+## Install
 
-### Using This Template
+```bash
+npm i -g @link-foundation/gh-manager
+gh-manager --version
+```
 
-1. Click "Use this template" on GitHub to create a new repository
-2. Clone your new repository
-3. Update `package.json` with your package name and description
-4. Install dependencies: `bun install`
-5. Start developing!
+Node.js 20 or newer, plus a browser you already have. The session is an
+installed Chrome started by
+[browser-commander](https://www.npmjs.com/package/browser-commander) with a
+dedicated `--user-data-dir`; `--channel msedge|brave|chromium` picks another
+one, and `--engine` picks the automation engine (`playwright` by default).
 
-### Development
+## Quick start
+
+```bash
+# Sign in once. A browser window opens; finish the login (SSO, 2FA, whatever
+# your organization requires) and the session is stored in the managed profile.
+gh-manager auth login
+
+# Remember the organization so later commands do not repeat --org.
+gh-manager config set org link-foundation
+
+# What is there?
+gh-manager package list
+
+# Make two packages public, verified through the API afterwards.
+gh-manager package public box box-dind
+
+# Delete everything matching a glob, showing the plan first.
+gh-manager package delete --pattern 'box-test-*' --dry-run
+gh-manager package delete --pattern 'box-test-*'
+```
+
+## How it works
+
+| Operation                  | Read          | Write   | Verify         |
+| -------------------------- | ------------- | ------- | -------------- |
+| List packages              | API → browser | —       | —              |
+| Change visibility          | API           | Browser | API, then page |
+| Delete a package           | API           | Browser | API, then page |
+| List or change permissions | Browser       | Browser | Page re-read   |
+
+`GET /orgs/{org}/packages?package_type=container` answers with an empty array
+for a token without the package scopes. gh-manager treats an empty listing as
+"the API cannot see them", not as "there are none", and enumerates the packages
+page in the browser instead. The output says which source was used.
+
+Verification is equally explicit. After a write, the API is re-read until it
+agrees, for up to 15 seconds. If the API cannot see the package at all — no
+token, or a token without scopes — that is reported as an absence of evidence
+and the page itself is read instead. A change that cannot be confirmed either
+way fails with `VERIFICATION_FAILED` (exit code 6); it is never reported as a
+success.
+
+## Commands
+
+The grammar is `gh-manager <domain> <verb> [targets...] [flags]`. Run
+`gh-manager --help` for the domain list, or `gh-manager <domain> --help` for a
+domain.
+
+### auth
+
+```bash
+gh-manager auth login    # open a browser window and wait for the sign-in
+gh-manager auth status   # show the signed-in account and the API token in use
+gh-manager auth logout   # delete the managed browser profile
+```
+
+`auth login` needs a visible window, so it refuses `--headless`. It waits up to
+300 seconds by default; raise that with `--timeout <seconds>`.
+
+### package
+
+```bash
+gh-manager package list --org link-foundation
+gh-manager package public box box-dind --org link-foundation
+gh-manager package private --pattern 'box*' --org link-foundation
+gh-manager package internal box --org link-foundation
+gh-manager package delete box-test --org link-foundation --dry-run
+```
+
+`--account <login>` targets a user account instead of an organization.
+`--package-type <type>` selects the ecosystem (`container` by default).
+
+`delete` always asks for a confirmation, even for a single explicitly named
+package. The visibility verbs ask only when the list came from a pattern,
+because a typed name is already a decision. `--yes` answers in advance, which
+is what a non-interactive run needs; without a TTY and without `--yes`, the
+command aborts rather than assuming consent.
+
+### permissions
+
+```bash
+gh-manager permissions list --pattern 'box*' --org link-foundation
+gh-manager permissions grant box --team maintainers --role write --org link-foundation
+gh-manager permissions revoke --pattern 'box*' --user someone --org link-foundation
+gh-manager permissions sync --from policy.json --org link-foundation --dry-run
+```
+
+Roles are `read`, `write`, and `admin`. `--team` and `--user` may be repeated.
+`revoke` always asks; `grant` asks for pattern runs.
+
+Because access is usually spoken about as a property of a package, the same
+verbs are also reachable under `package`, and the two spellings are the same
+command:
+
+```bash
+gh-manager package permissions list --pattern 'box*' --org link-foundation
+```
+
+### config
+
+```bash
+gh-manager config list
+gh-manager config set org link-foundation
+gh-manager config get org
+gh-manager config unset org
+```
+
+`config list` also prints the path of the file it read.
+
+Stored keys: `org`, `account`, `engine`, `channel`, `headless`, `packageType`.
+Flags always win over what is stored.
+
+## Targets, patterns, and safety
+
+Targets are package names, or a `--pattern`. The two cannot be combined, and a
+command that gets neither is a usage error.
+
+- `--pattern 'box*'` is a **glob** by default: `*` matches any run of
+  characters, `?` matches exactly one, and every other character is literal.
+  A glob is anchored, so `box*` matches `box-dind` but `dind` matches nothing.
+- `--regex` switches the same flag to a JavaScript regular expression, which is
+  **not** anchored: `--pattern 'box' --regex` matches `sandbox` too. Anchor it
+  yourself when that matters: `--pattern '^box(-dind)?$' --regex`.
+- Both forms match case-insensitively.
+- A pattern is always expanded against the packages that actually exist, and
+  the resolved list is printed before anything is touched.
+- A pattern that matches nothing exits with `NO_MATCHES` (4) and names the
+  pattern and how many packages were considered. It never silently succeeds.
+- An over-broad pattern (`*`, `**`, `.*`, `.+`, `^.*$`) is refused unless
+  `--all` is passed, so a typo cannot expand to "everything".
+- `--dry-run` prints the plan and stops before acting.
+
+## Policy files
+
+`permissions sync --from policy.json` converges package access onto a file:
+
+```json
+{
+  "packages": [
+    {
+      "pattern": "box*",
+      "teams": { "maintainers": "admin", "reviewers": "read" },
+      "users": { "konard": "write" }
+    },
+    {
+      "names": ["gh-manager"],
+      "exclusive": false,
+      "teams": { "maintainers": "write" }
+    }
+  ]
+}
+```
+
+Each entry selects packages by `name`, `names`, or `pattern`. Grantees the
+entry omits are revoked, which is what makes the file a policy and not a wish
+list; set `"exclusive": false` when an entry should only add. Roles are
+case-insensitive. Combine with `--dry-run` to see the grants and revokes a file
+implies before applying it.
+
+## Exit codes
+
+| Code | Name                  | Meaning                                              |
+| ---- | --------------------- | ---------------------------------------------------- |
+| 0    | `SUCCESS`             | Every requested operation completed and was verified |
+| 1    | `FAILURE`             | An operation failed (browser, GitHub, unexpected UI) |
+| 2    | `USAGE`               | The command line was wrong                           |
+| 3    | `AUTH`                | No usable browser session or token                   |
+| 4    | `NO_MATCHES`          | The targets or pattern resolved to nothing           |
+| 5    | `ABORTED`             | A confirmation was declined                          |
+| 6    | `VERIFICATION_FAILED` | The action ran but could not be confirmed            |
+
+In a bulk run one failure does not cancel the rest: the remaining packages are
+still processed, the failures are listed, and the exit code reports the first
+one.
+
+## Application directory
+
+```
+~/.gh-manager/
+├── config.json      # stored defaults
+├── chrome-profile/  # the persistent browser profile
+└── logs/            # failure screenshots and page dumps
+```
+
+Override the location with `--app-dir <path>` or `GH_MANAGER_HOME`, which is
+what a CI runner or a second account needs.
+
+## Authentication
+
+Two independent credentials, used for different things.
+
+**The browser session** performs every write. It is created once by
+`gh-manager auth login` and stored in the managed Chrome profile. gh-manager
+never sees a password.
+
+**The API token** is only used for reads and verification, and is optional —
+without one, gh-manager falls back to reading pages. It is resolved in this
+order:
+
+1. `--token <value>`
+2. `GH_MANAGER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`
+3. `gh auth token`, so an existing GitHub CLI login just works
+
+`gh-manager auth status` prints which source was used.
+
+## Headless and CI
+
+`--headless` runs the browser without a window, and every verb except
+`auth login` supports it. A CI run needs three things:
+
+1. An application directory holding a profile that is already signed in. Point
+   `GH_MANAGER_HOME` at it, or restore it from a secret; the profile is the
+   credential, so treat it as one.
+2. `--yes`, because a destructive verb refuses to assume consent when there is
+   no TTY.
+3. A token in the environment, so changes are verified through the API rather
+   than through a page read.
+
+```bash
+GH_MANAGER_HOME=/secure/gh-manager \
+  gh-manager package public box --org link-foundation --headless --yes
+```
+
+If the profile has expired, the run fails with `AUTH` (3) and a screenshot,
+which is the signal to refresh it with an interactive `gh-manager auth login`.
+
+## When something goes wrong
+
+Every page interaction waits for a condition and gives up with a clear message
+instead of sleeping and hoping. When a page does not look the way the driver
+expects, the failure writes `<label>.png` and `<label>.html` to
+`~/.gh-manager/logs/` and names them in the error.
+
+- `--verbose` prints the navigation and page-state trace.
+- `--json` prints machine-readable output for `package list`,
+  `permissions list`, and `config list`.
+- All the GitHub selectors live in `src/browser/selectors.js`, so a UI change
+  is a one-file fix.
+
+## Known limitations
+
+- Package **visibility** is a container-registry concept; npm and other
+  ecosystems expose a different settings page, so `container` is both the
+  default and the tested path.
+- The browser drivers target the current GitHub UI. A redesign needs
+  `src/browser/selectors.js` updated; the tests in `tests/browser-*.test.js`
+  run against fixture pages and will fail loudly when a driver stops matching.
+- `auth login` cannot run headless, by design.
+
+## Library use
+
+The package is also importable, which is how the tests and
+`examples/basic-usage.js` exercise the pure parts (pattern resolution, policy
+parsing, access diffing) with no browser and no token:
+
+```js
+import {
+  matchPackageNames,
+  parsePolicy,
+  runCli,
+} from '@link-foundation/gh-manager';
+```
+
+`runCli(argv, options)` returns an exit code and never calls `process.exit`, so
+a whole command line can be run in process.
+
+## Development
 
 ```bash
 # Install dependencies
@@ -46,16 +326,16 @@ bun run lint
 # Format code
 bun run format
 
-# Check all (lint + format + file size)
+# Check all (lint + format + duplication)
 bun run check
+
+# Try the pure parts without a browser
+node examples/basic-usage.js
 
 # Build the universal React example app
 npm install --prefix examples/universal-app
 npm run example:web:build
 npm run example:desktop:package
-
-# Try the CLI locally
-node bin/example-package-name.js add 2 3
 ```
 
 ## Project Structure
@@ -65,14 +345,21 @@ node bin/example-package-name.js add 2 3
 ├── .changeset/           # Changeset configuration
 ├── .github/workflows/    # GitHub Actions CI/CD
 ├── .husky/               # Git hooks (pre-commit)
+├── bin/gh-manager.js     # CLI entry point
 ├── examples/             # Usage examples
 │   └── universal-app/    # React + GitHub Pages + Electron + Capacitor app
 ├── scripts/              # Build and release scripts
-├── src/                  # Source code
-│   ├── index.js          # Main entry point
+├── src/
+│   ├── browser/          # Page drivers and every GitHub selector
+│   ├── cli/              # Argument parsing, prompts, entry point
+│   ├── domains/          # Command domains: auth, package, permissions, config
+│   ├── github/           # REST client and token discovery
+│   ├── packages/         # The hybrid API/browser gateway
+│   ├── permissions/      # Policy parsing and access diffing
+│   ├── index.js          # Library entry point
 │   └── index.d.ts        # TypeScript definitions
 ├── tests/                # Test files
-├── .eslintrc.js          # ESLint configuration
+├── eslint.config.js      # ESLint configuration
 ├── .prettierrc           # Prettier configuration
 ├── bunfig.toml           # Bun configuration
 ├── deno.json             # Deno configuration
@@ -83,7 +370,7 @@ node bin/example-package-name.js add 2 3
 
 ### Multi-Runtime Support
 
-This template is designed to work seamlessly with all major JavaScript runtimes:
+gh-manager runs on all major JavaScript runtimes:
 
 - **Bun**: Primary runtime with highest performance, uses native test support (`bun test`)
 - **Node.js**: Alternative runtime, uses built-in test runner (`node --test`)
@@ -93,7 +380,7 @@ The [test-anywhere](https://github.com/link-foundation/test-anywhere) framework 
 
 ### Package Manager Agnostic
 
-While `package.json` is the source of truth for dependencies, the template supports:
+While `package.json` is the source of truth for dependencies, any of these work:
 
 - **bun**: Primary choice, uses `bun.lockb`
 - **npm**: Uses `package-lock.json`
@@ -105,17 +392,17 @@ Note: `package-lock.json` is not committed by default to allow any package manag
 
 ### Universal App Example
 
-The template includes `examples/universal-app`, a Vite React app that imports
-`add` and `multiply` from `src/index.js` and renders a visual calculator UI.
-The same static build is used by:
+`examples/universal-app` is a Vite React app that imports `matchPackageNames`
+and `isOverBroadPattern` from `src/patterns.js` and lets you try a pattern against
+a list of package names, including the over-broad check that protects bulk
+operations. The same static build is used by:
 
 - GitHub Pages (`npm run example:web:build`)
 - Electron desktop packaging (`npm run example:desktop:package`)
 - Capacitor Android/iOS sync (`npm run example:mobile:sync`)
 
-The example app has its own `package.json` and lockfile so template users can
-opt into the frontend stack without adding React, Electron, or Capacitor to the
-library package itself.
+The example app has its own `package.json` and lockfile, so React, Electron,
+and Capacitor stay out of the published CLI package.
 
 See [examples/universal-app/README.md](examples/universal-app/README.md) for
 local web, desktop, Android, and iOS testing instructions.
@@ -266,15 +553,11 @@ Add regex patterns to `.lycheeignore` to exclude URLs from checks (e.g., local d
 
 ## Configuration
 
-### Updating Package Name
+### Package Name
 
-After creating a repository from this template, update the package name in:
-
-1. `package.json`: replace `"@link-foundation/example-package-name"` with your package name
-2. `.changeset/config.json`: Package references
-
-Release scripts derive the package name from `package.json` at runtime, so no
-script-level package-name constants need to be edited during template adoption.
+The published name lives in `package.json` (`@link-foundation/gh-manager`) and
+in `.changeset/config.json`. Release scripts read it from `package.json` at
+runtime, so there are no package-name constants to keep in sync.
 
 ### Optional Docker Hub Publishing
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'test-anywhere';
 import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve as resolvePath } from 'node:path';
 
 const exampleRoot = 'examples/universal-app';
 const packageJsonPath = `${exampleRoot}/package.json`;
@@ -45,14 +46,50 @@ describe('universal React example app', () => {
     expect(packageJson.scripts['mobile:ios:run']).toContain('cap run ios');
   });
 
-  it('renders a visual UI using the package add and multiply functions', () => {
+  it('renders a visual UI using the package pattern matcher', () => {
     const appSource = readText(appSourcePath);
 
-    expect(appSource).toContain("from '../../../src/index.js'");
-    expect(appSource).toContain('add(parsedLeft, parsedRight)');
-    expect(appSource).toContain('multiply(parsedLeft, parsedRight)');
-    expect(appSource).toContain('Addition');
-    expect(appSource).toContain('Multiplication');
+    expect(appSource).toContain("from '../../../src/patterns.js'");
+    expect(appSource).toContain(
+      'matchPackageNames(packageNames, { pattern, regex })'
+    );
+    expect(appSource).toContain('isOverBroadPattern({ pattern, regex })');
+    expect(appSource).toContain('Matched');
+    expect(appSource).toContain('Skipped');
+  });
+
+  it('imports only modules a bundler can resolve for the browser', () => {
+    const appSource = readText(appSourcePath);
+    const entry = appSource.match(/from '(\.\.\/\.\.\/\.\.\/src\/[^']+)'/);
+
+    expect(Boolean(entry)).toBe(true);
+
+    const unbundlable = [];
+    const seen = new Set();
+    const queue = [entry[1].replace('../../../', '')];
+
+    while (queue.length > 0) {
+      const modulePath = queue.pop();
+
+      if (seen.has(modulePath)) {
+        continue;
+      }
+
+      seen.add(modulePath);
+      const source = readText(modulePath);
+
+      for (const [, specifier] of source.matchAll(
+        /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g
+      )) {
+        if (specifier.startsWith('.')) {
+          queue.push(resolvePath(dirname(modulePath), specifier));
+        } else {
+          unbundlable.push(`${modulePath} -> ${specifier}`);
+        }
+      }
+    }
+
+    expect(unbundlable).toEqual([]);
   });
 
   it('shares the Vite build output with Capacitor and GitHub Pages', () => {

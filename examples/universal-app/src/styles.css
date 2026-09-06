@@ -42,7 +42,7 @@ input {
   margin: 0 auto;
 }
 
-.calculator-panel,
+.matcher-panel,
 .distribution-panel {
   border: 1px solid #d5d9ce;
   border-radius: 8px;
@@ -50,7 +50,7 @@ input {
   box-shadow: 0 18px 36px rgba(31, 46, 40, 0.08);
 }
 
-.calculator-panel {
+.matcher-panel {
   padding: 32px;
 }
 
@@ -75,10 +75,10 @@ p {
 }
 
 h1 {
-  max-width: 12ch;
+  max-width: 16ch;
   margin-bottom: 28px;
-  font-size: clamp(2.5rem, 10vw, 6rem);
-  line-height: 0.92;
+  font-size: clamp(2rem, 6vw, 3.5rem);
+  line-height: 0.98;
 }
 
 h2 {
@@ -93,22 +93,23 @@ h2 {
   gap: 16px;
 }
 
-.number-field {
+.pattern-field {
   display: grid;
   gap: 8px;
   min-width: 0;
 }
 
-.number-field span,
+.pattern-field span,
 .result-label,
 .target-list small {
   color: #5d6b65;
   font-size: 0.9rem;
 }
 
-.number-field input {
+.pattern-field input {
   width: 100%;
   min-height: 56px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   border: 1px solid #c9d0c5;
   border-radius: 8px;
   padding: 10px 12px;
@@ -117,7 +118,7 @@ h2 {
   font-size: 1.35rem;
 }
 
-.number-field input:focus {
+.pattern-field input:focus {
   border-color: #1f8f7b;
   outline: 3px solid rgba(31, 143, 123, 0.18);
 }
@@ -133,6 +134,69 @@ h2 {
   border-radius: 8px;
   padding: 18px;
   color: #10231f;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+  color: #5d6b65;
+  font-size: 0.9rem;
+}
+
+.mode-toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: #1f8f7b;
+}
+
+.notice {
+  margin: 20px 0 0;
+  border-left: 3px solid #b8860b;
+  padding-left: 12px;
+  color: #5d6b65;
+  font-size: 0.9rem;
+}
+
+.notice-error {
+  border-left-color: #c7483a;
+  color: #8c2f24;
+}
+
+.match-list {
+  display: grid;
+  gap: 8px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.match-list li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.match-list small {
+  color: #5d6b65;
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+
+.match-hit {
+  border-left: 3px solid #1f8f7b;
+  background: #eef8f2;
+}
+
+.match-miss {
+  border-left: 3px solid #c9d0c5;
+  background: #f2f3ef;
+  color: #6f7c76;
 }
 
 .result-tile strong {
@@ -198,12 +262,12 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .calculator-panel,
+  .matcher-panel,
   .distribution-panel {
     padding: 20px;
   }
 
   h1 {
-    max-width: 10ch;
+    max-width: 14ch;
   }
 }
