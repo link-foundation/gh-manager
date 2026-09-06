@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import {
   DEFAULT_CONFIG,
@@ -52,29 +52,29 @@ function withTempDir(callback) {
 describe('application directory', () => {
   it('defaults to ~/.gh-manager', () => {
     expect(resolveAppDir({ env: {}, home: '/home/example' })).toBe(
-      '/home/example/.gh-manager'
+      resolve(join('/home/example', '.gh-manager'))
     );
   });
 
   it('honours GH_MANAGER_HOME and --app-dir, in that order of precedence', () => {
     expect(
       resolveAppDir({ env: { GH_MANAGER_HOME: '/srv/gh' }, home: '/home/x' })
-    ).toBe('/srv/gh');
+    ).toBe(resolve('/srv/gh'));
     expect(
       resolveAppDir({
         appDir: '/srv/flag',
         env: { GH_MANAGER_HOME: '/srv/gh' },
         home: '/home/x',
       })
-    ).toBe('/srv/flag');
+    ).toBe(resolve('/srv/flag'));
   });
 
   it('names config.json, chrome-profile, and logs inside it', () => {
     const paths = appPaths('/srv/gh');
 
-    expect(paths.configFile).toBe('/srv/gh/config.json');
-    expect(paths.profileDir).toBe('/srv/gh/chrome-profile');
-    expect(paths.logsDir).toBe('/srv/gh/logs');
+    expect(paths.configFile).toBe(join('/srv/gh', 'config.json'));
+    expect(paths.profileDir).toBe(join('/srv/gh', 'chrome-profile'));
+    expect(paths.logsDir).toBe(join('/srv/gh', 'logs'));
   });
 
   it('creates the profile and logs directories', () => {
