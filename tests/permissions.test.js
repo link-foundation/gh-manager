@@ -444,3 +444,89 @@ describe('gh-manager permissions sync', () => {
     }
   });
 });
+
+describe('gh-manager package permissions', () => {
+  it('runs the permissions domain through the package spelling', async () => {
+    const github = fakeGitHub([
+      {
+        packageName: 'box',
+        directory: DIRECTORY,
+        access: [{ type: 'team', name: 'maintainers', role: 'admin' }],
+      },
+    ]);
+
+    const result = await runCommand(
+      [
+        'package',
+        'permissions',
+        'list',
+        '--pattern',
+        'box*',
+        '--org',
+        'link-foundation',
+      ],
+      { github }
+    );
+
+    expect(result.code).toBe(EXIT_CODES.SUCCESS);
+    expect(result.output).toContain('box:\n  team maintainers: admin');
+  });
+
+  it('passes targets and flags on to the forwarded verb', async () => {
+    const github = fakeGitHub([{ packageName: 'box', directory: DIRECTORY }]);
+
+    const result = await runCommand(
+      [
+        'package',
+        'permissions',
+        'grant',
+        'box',
+        '--team',
+        'maintainers',
+        '--role',
+        'write',
+        '--org',
+        'link-foundation',
+      ],
+      { github }
+    );
+
+    expect(result.code).toBe(EXIT_CODES.SUCCESS);
+    expect(github.states.get('box').access).toEqual([
+      { type: 'team', name: 'maintainers', role: 'write' },
+    ]);
+  });
+
+  it('reports an unknown forwarded verb against the permissions domain', async () => {
+    const result = await runCommand(['package', 'permissions', 'granting']);
+
+    expect(result.code).toBe(EXIT_CODES.USAGE);
+    expect(result.errors).toContain(
+      'Unknown verb "granting" for permissions. Available: list, grant, revoke, sync.'
+    );
+  });
+
+  it('prints the permissions help for the package spelling', async () => {
+    const result = await runCommand(['package', 'permissions', '--help']);
+
+    expect(result.code).toBe(EXIT_CODES.SUCCESS);
+    expect(result.output).toContain(
+      'gh-manager permissions - Read and change who can access packages'
+    );
+  });
+
+  it('prints the permissions help for `help package permissions`', async () => {
+    const result = await runCommand(['help', 'package', 'permissions']);
+
+    expect(result.code).toBe(EXIT_CODES.SUCCESS);
+    expect(result.output).toContain('gh-manager permissions - ');
+  });
+
+  it('points at the permissions domain from the package help', async () => {
+    const result = await runCommand(['package', '--help']);
+
+    expect(result.code).toBe(EXIT_CODES.SUCCESS);
+    expect(result.output).toContain('Forwards to:');
+    expect(result.output).toContain('gh-manager package permissions <verb>');
+  });
+});

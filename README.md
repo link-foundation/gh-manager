@@ -131,6 +131,14 @@ gh-manager permissions sync --from policy.json --org link-foundation --dry-run
 Roles are `read`, `write`, and `admin`. `--team` and `--user` may be repeated.
 `revoke` always asks; `grant` asks for pattern runs.
 
+Because access is usually spoken about as a property of a package, the same
+verbs are also reachable under `package`, and the two spellings are the same
+command:
+
+```bash
+gh-manager package permissions list --pattern 'box*' --org link-foundation
+```
+
 ### config
 
 ```bash

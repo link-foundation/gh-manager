@@ -54,6 +54,29 @@ export function formatUsage(domains) {
 }
 
 /**
+ * Describe the words a domain forwards to another domain.
+ * @param {Object} domain - Domain definition
+ * @returns {string[]} Help lines, empty when the domain forwards nothing
+ */
+function formatNested(domain) {
+  const words = Object.keys(domain.nested ?? {});
+
+  if (words.length === 0) {
+    return [];
+  }
+
+  return [
+    '',
+    'Forwards to:',
+    ...words.map(
+      (word) =>
+        `  ${word}  the ${domain.nested[word]} domain, so \`gh-manager ${domain.name} ${word} <verb>\`` +
+        ` and \`gh-manager ${domain.nested[word]} <verb>\` are the same command`
+    ),
+  ];
+}
+
+/**
  * Build the help text of one domain.
  * @param {Object} domain - Domain definition
  * @returns {string} Help text
@@ -67,6 +90,7 @@ export function formatDomainUsage(domain) {
     '',
     'Verbs:',
     ...names.map((name) => `  ${pad(name)}  ${domain.verbs[name].summary}`),
+    ...formatNested(domain),
     '',
     ...domain.usage,
   ].join('\n');

@@ -20,3 +20,5 @@ GitHub package operations the REST and GraphQL APIs do not expose.
   `--all`, support `--dry-run` and `--yes`, and exit with codes a pipeline can
   branch on. Unexpected pages write a screenshot to `~/.gh-manager/logs/` and
   fail loudly.
+- `gh-manager package permissions <verb>` is the same command as
+  `gh-manager permissions <verb>`, so access reads as a property of a package.

@@ -117,6 +117,8 @@ export interface CommandDomain {
   summary: string;
   usage: string[];
   verbs: Record<string, CommandVerb>;
+  /** Words this domain forwards to another domain, keyed by word. */
+  nested?: Record<string, string>;
 }
 
 /** Result of setting a package visibility. */

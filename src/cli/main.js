@@ -46,6 +46,29 @@ function requireDomain(domains, name) {
 }
 
 /**
+ * Resolve the domain a command line names, following the nested spellings a
+ * domain forwards elsewhere.
+ *
+ * A domain may declare `nested: { <word>: '<domain>' }`, which makes
+ * `gh-manager package permissions grant box` mean `gh-manager permissions
+ * grant box`. The forwarding target is a name looked up in the registry, so
+ * the two domains stay independent of each other and the `domains` override
+ * `runCli` accepts still decides what both spellings resolve to.
+ * @param {Array<Object>} domains - Registered domains
+ * @param {string[]} positionals - Positionals, starting at the domain name
+ * @returns {{domain: Object, rest: string[]}} Domain and what follows it
+ */
+function resolveCommand(domains, positionals) {
+  const [name, ...rest] = positionals;
+  const domain = requireDomain(domains, name);
+  const forwarded = domain.nested?.[rest[0]];
+
+  return forwarded
+    ? { domain: requireDomain(domains, forwarded), rest: rest.slice(1) }
+    : { domain, rest };
+}
+
+/**
  * Resolve the verb a command line names.
  * @param {Object} domain - Domain definition
  * @param {string} name - Verb from the command line
@@ -74,7 +97,7 @@ function requireVerb(domain, name) {
  * @returns {Promise<number|null>} Exit code, or null when there is work to do
  */
 async function handleHelp({ positionals, flags, domains, stdout }) {
-  const [first, second] = positionals;
+  const [first] = positionals;
 
   if (flags.version && !first) {
     stdout(await readVersion());
@@ -82,9 +105,10 @@ async function handleHelp({ positionals, flags, domains, stdout }) {
   }
 
   if (first === 'help') {
+    const named = positionals.slice(1);
     stdout(
-      second
-        ? formatDomainUsage(requireDomain(domains, second))
+      named.length > 0
+        ? formatDomainUsage(resolveCommand(domains, named).domain)
         : formatUsage(domains)
     );
     return EXIT_CODES.SUCCESS;
@@ -95,9 +119,9 @@ async function handleHelp({ positionals, flags, domains, stdout }) {
     return flags.help ? EXIT_CODES.SUCCESS : EXIT_CODES.USAGE;
   }
 
-  const domain = requireDomain(domains, first);
+  const { domain, rest } = resolveCommand(domains, positionals);
 
-  if (!second || flags.help) {
+  if (rest.length === 0 || flags.help) {
     stdout(formatDomainUsage(domain));
     return flags.help ? EXIT_CODES.SUCCESS : EXIT_CODES.USAGE;
   }
@@ -145,8 +169,9 @@ export async function runCli(
       return printed;
     }
 
-    const [domainName, verbName, ...targets] = parsed.positionals;
-    const verb = requireVerb(requireDomain(domains, domainName), verbName);
+    const { domain, rest } = resolveCommand(domains, parsed.positionals);
+    const [verbName, ...targets] = rest;
+    const verb = requireVerb(domain, verbName);
     const context = createRunContext({
       targets,
       flags,

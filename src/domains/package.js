@@ -139,11 +139,16 @@ export const packageDomain = {
     'gh-manager package public <name...> --org <org>',
     'gh-manager package private --pattern "box*" --org <org>',
     'gh-manager package delete <name...> --org <org> [--dry-run] [--yes]',
+    'gh-manager package permissions list --pattern "box*" --org <org>',
     '',
     'Targets are package names, or --pattern with a glob (--regex for a',
     'regular expression). Pattern runs always print the resolved list and ask',
     'for confirmation; --yes answers that question in advance.',
   ],
+  // `package permissions <verb>` reads the way access to a package is usually
+  // spoken about, so it forwards to the `permissions` domain, which can also
+  // be reached directly.
+  nested: { permissions: 'permissions' },
   verbs: {
     list: { summary: 'List the packages of an account', run: list },
     ...Object.fromEntries(
