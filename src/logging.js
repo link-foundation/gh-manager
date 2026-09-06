@@ -41,11 +41,16 @@ export function createLogger({
  * @returns {string} Slug usable in a file name
  */
 export function slugify(value) {
-  const slug = String(value)
+  const collapsed = String(value)
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || 'run';
+    .replace(/[^a-z0-9]+/g, '-');
+
+  // The collapse above leaves at most one dash at each end, so trimming them is
+  // a slice. A `-+$` trim would scan back over every trailing dash from every
+  // starting position, which is the backtracking shape code scanning flags.
+  const start = collapsed.startsWith('-') ? 1 : 0;
+  const end = collapsed.endsWith('-') ? collapsed.length - 1 : collapsed.length;
+  return collapsed.slice(start, Math.max(start, end)) || 'run';
 }
 
 /**
