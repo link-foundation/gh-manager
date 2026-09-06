@@ -97,10 +97,33 @@ export default [
     },
   },
   {
+    // The page drivers, and the tests that run them against a parsed document,
+    // contain functions whose body executes inside the browser.
+    files: [
+      'src/browser/**/*.js',
+      'tests/fixtures/fake-browser.js',
+      'tests/browser-dom.test.js',
+    ],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+      },
+    },
+  },
+  {
     // Test files have different requirements
     files: ['tests/**/*.js', '**/*.test.js'],
     rules: {
       'require-await': 'off', // Async functions without await are common in tests
+    },
+  },
+  {
+    // GitHub spells its REST API version as a date, so the header value these
+    // files send reads as a changelog entry while naming a protocol version.
+    files: ['src/github/**/*.js', 'tests/github-api.test.js'],
+    rules: {
+      'local/no-changelog-comments': ['warn', { allowDatesInStrings: true }],
     },
   },
   {

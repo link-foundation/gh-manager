@@ -1,28 +1,42 @@
 /**
- * Example module entry point
- * Replace this with your actual implementation
+ * The gh-manager library surface.
+ *
+ * The CLI is one consumer of these modules; importing them directly is what
+ * makes gh-manager usable from a release script that already knows which
+ * packages it publishes.
  */
 
-/**
- * Example function that adds two numbers
- * @param {number} a - First number
- * @param {number} b - Second number
- * @returns {number} Sum of a and b
- */
-export const add = (a, b) => a + b;
-
-/**
- * Example function that multiplies two numbers
- * @param {number} a - First number
- * @param {number} b - Second number
- * @returns {number} Product of a and b
- */
-export const multiply = (a, b) => a * b;
-
-/**
- * Example async function
- * @param {number} ms - Milliseconds to wait
- * @returns {Promise<void>}
- */
-export const delay = (ms) =>
-  new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+export { runCli } from './cli/main.js';
+export { parseArgs, FLAG_SPECS } from './cli/args.js';
+export { DOMAINS, findDomain } from './domains/index.js';
+export { CliError, EXIT_CODES, exitCodeForError } from './exit-codes.js';
+export {
+  DEFAULT_CONFIG,
+  CONFIGURABLE_KEYS,
+  appPaths,
+  ensureAppDir,
+  loadStoredConfig,
+  resolveAppDir,
+  resolveOwner,
+  resolveSettings,
+  saveStoredConfig,
+  writeStoredConfig,
+} from './config.js';
+export {
+  createMatcher,
+  globToRegExpSource,
+  isOverBroadPattern,
+  matchPackageNames,
+  resolveTargets,
+} from './patterns.js';
+export { createRestClient, GitHubApiError } from './github/rest.js';
+export { resolveToken } from './github/token.js';
+export { createPackageGateway } from './packages/gateway.js';
+export {
+  describeOperation,
+  diffAccess,
+  parsePolicy,
+  validateRole,
+} from './permissions/policy.js';
+export { openBrowserSession, withBrowserSession } from './browser/session.js';
+export { ROLES, VISIBILITIES } from './browser/selectors.js';
