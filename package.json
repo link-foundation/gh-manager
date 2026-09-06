@@ -94,6 +94,6 @@
     "url": "https://github.com/link-foundation/gh-manager/issues"
   },
   "dependencies": {
-    "browser-commander": "^0.17.2"
+    "browser-commander": "^0.17.0"
   }
 }
