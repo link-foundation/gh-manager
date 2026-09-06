@@ -99,10 +99,12 @@ const NOT_FOUND_PAGE =
 /**
  * Create a fake browser session.
  *
- * A route is `{html, onClick}`: `html` is the page markup, or a function
- * returning it so a fixture can render its own state, and `onClick` is called
- * with the clicked element whenever something on that page is clicked, which
- * is how a fixture opens a dialog or navigates in response to a submit.
+ * A route is `{html, onClick, onFill}`: `html` is the page markup, or a
+ * function returning it so a fixture can render its own state, `onClick` is
+ * called with the clicked element whenever something on that page is clicked,
+ * which is how a fixture opens a dialog or navigates in response to a submit,
+ * and `onFill` is called after typing, which is how a search field renders its
+ * results.
  * @param {Object} options - Session options
  * @param {Object<string, Object|string>} options.routes - URL to route
  * @param {string} [options.start] - URL to open first
@@ -223,6 +225,10 @@ export function createFakeSession({ routes, start }) {
 
       if (element) {
         element.value = text;
+        currentRoute?.onFill?.(element, {
+          document: current.document,
+          navigate,
+        });
       }
 
       return { filled: Boolean(element) };
