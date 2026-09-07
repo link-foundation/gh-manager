@@ -10,8 +10,26 @@ import { CliError, EXIT_CODES } from './exit-codes.js';
 
 const REGEXP_SPECIAL = /[.*+?^${}()|[\]\\]/g;
 
-/** Patterns that select everything and therefore need an explicit opt-in. */
-const OVER_BROAD_PATTERNS = new Set(['*', '**', '.*', '.+', '^.*$']);
+/**
+ * Names used to decide whether a pattern is unbounded.
+ *
+ * A pattern is judged by what it matches rather than by how it is spelled,
+ * because a list of known-broad spellings can always be written another way:
+ * `*` was caught but `?*`, `**a*`, and the regular expression `.*.*` were not,
+ * and each of those selects every package.
+ *
+ * The probes are deliberately unlike each other — different lengths, cases,
+ * and characters — so matching all of them means matching by structure rather
+ * than by coincidence.
+ */
+const PROBE_NAMES = [
+  'a',
+  'box',
+  'sandbox-python',
+  'z9-_.x',
+  'Q',
+  'this-is-a-much-longer-package-name',
+];
 
 /**
  * Convert a glob pattern into an anchored regular expression source.
@@ -84,11 +102,20 @@ export function matchPackageNames(names, options) {
 export function isOverBroadPattern({ pattern, regex = false }) {
   const trimmed = String(pattern ?? '').trim();
 
-  if (OVER_BROAD_PATTERNS.has(trimmed)) {
+  if (trimmed === '') {
     return true;
   }
 
-  return regex && (trimmed === '' || trimmed === '^' || trimmed === '$');
+  let matches;
+
+  try {
+    matches = createMatcher({ pattern: trimmed, regex });
+  } catch {
+    // An unparseable pattern is not unbounded; resolveTargets reports it.
+    return false;
+  }
+
+  return PROBE_NAMES.every((name) => matches(name));
 }
 
 /**

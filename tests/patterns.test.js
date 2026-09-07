@@ -107,9 +107,29 @@ describe('isOverBroadPattern', () => {
     expect(isOverBroadPattern({ pattern: '^', regex: true })).toBe(true);
   });
 
+  it('recognizes unbounded patterns however they are spelled', () => {
+    // Judging a pattern by its spelling missed every one of these, and each
+    // selects every package while skipping the --all confirmation.
+    expect(isOverBroadPattern({ pattern: '?*' })).toBe(true);
+    expect(isOverBroadPattern({ pattern: '*?' })).toBe(true);
+    expect(isOverBroadPattern({ pattern: '***' })).toBe(true);
+    expect(isOverBroadPattern({ pattern: '.*.*', regex: true })).toBe(true);
+    expect(isOverBroadPattern({ pattern: '.+', regex: true })).toBe(true);
+    expect(isOverBroadPattern({ pattern: '^.*$', regex: true })).toBe(true);
+  });
+
   it('leaves bounded patterns alone', () => {
     expect(isOverBroadPattern({ pattern: 'box*' })).toBe(false);
     expect(isOverBroadPattern({ pattern: '^box', regex: true })).toBe(false);
+    expect(isOverBroadPattern({ pattern: 'sandbox*' })).toBe(false);
+    expect(isOverBroadPattern({ pattern: '*-dind' })).toBe(false);
+    expect(isOverBroadPattern({ pattern: '**a*' })).toBe(false);
+  });
+
+  it('does not call an unparseable pattern unbounded', () => {
+    // resolveTargets reports the syntax error; treating it as "matches
+    // everything" would ask for --all on a pattern that cannot run at all.
+    expect(isOverBroadPattern({ pattern: '[', regex: true })).toBe(false);
   });
 });
 
