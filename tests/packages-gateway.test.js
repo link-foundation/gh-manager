@@ -320,6 +320,47 @@ describe('deletePackage', () => {
     expect(result.verifiedBy).toBe('page');
   });
 
+  it('does not treat a failed API read as proof the package is gone', async () => {
+    // A 403 or a 5xx makes the package unreadable, not absent. Accepting an
+    // unreadable package as deleted would report success for a delete that
+    // never happened, so the page is what has to settle it.
+    const { routes, state } = packagePages({
+      packageName: 'box',
+      dialogPhrase: 'link-foundation/box',
+    });
+    const { gateway } = gatewayFor({
+      rest: {
+        hasToken: true,
+        /**
+         * @returns {Promise<Array>} Unused by this test
+         */
+        async listPackages() {
+          return [];
+        },
+        /**
+         * @returns {Promise<Object>} The package, until the read starts failing
+         */
+        async getPackage() {
+          if (state.submissions.length > 0) {
+            throw new Error(
+              'GitHub API 403 for /orgs/o/packages/container/box'
+            );
+          }
+
+          return { name: 'box', visibility: 'private' };
+        },
+      },
+      routes,
+    });
+
+    const error = await failureOf(() =>
+      gateway.deletePackage({ packageName: 'box' })
+    );
+
+    expect(state.deleted).toBe(false);
+    expect(error.exitCode).toBe(EXIT_CODES.VERIFICATION_FAILED);
+  });
+
   it('refuses to report a deletion that did not happen', async () => {
     // GitHub asks for a phrase it then does not accept, so the dialog is
     // submitted and the package survives: exactly the case where reporting

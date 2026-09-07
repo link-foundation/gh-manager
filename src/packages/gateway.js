@@ -61,20 +61,43 @@ function createPackageReaders({
 }) {
   /**
    * Read one package through the API.
+   *
+   * The outcome separates the three answers a read can give, because a delete
+   * is only confirmed by the first of them:
+   *
+   * - `absent`: GitHub answered 404, so the package really is not there.
+   * - `present`: the payload came back.
+   * - `unknown`: no token, or the read itself failed (403, 5xx, network).
+   *
+   * Collapsing `unknown` into `absent` is what would let a failed read look
+   * like a successful deletion, so the two are never merged.
+   * @param {string} packageName - Package name
+   * @returns {Promise<{state: 'present'|'absent'|'unknown', payload: Object|null}>} Read outcome
+   */
+  async function readPackageOutcome(packageName) {
+    if (!rest.hasToken) {
+      return { state: 'unknown', payload: null };
+    }
+
+    try {
+      const payload = await rest.getPackage(coordinates(packageName));
+      return payload === null
+        ? { state: 'absent', payload: null }
+        : { state: 'present', payload };
+    } catch (error) {
+      log.debug(`API read of ${packageName} failed: ${error.message}`);
+      return { state: 'unknown', payload: null };
+    }
+  }
+
+  /**
+   * Read one package through the API, keeping only the payload.
    * @param {string} packageName - Package name
    * @returns {Promise<Object|null>} Package payload, or null when unavailable
    */
   async function readPackage(packageName) {
-    if (!rest.hasToken) {
-      return null;
-    }
-
-    try {
-      return await rest.getPackage(coordinates(packageName));
-    } catch (error) {
-      log.debug(`API read of ${packageName} failed: ${error.message}`);
-      return null;
-    }
+    const { payload } = await readPackageOutcome(packageName);
+    return payload;
   }
 
   /**
@@ -127,10 +150,16 @@ function createPackageReaders({
    * or a token without the package scopes. That case is not a verification
    * failure, it is an absence of evidence, and the caller falls back to reading
    * the page, and never pretends either way.
+   * `accept` receives the full read outcome, so a caller can require an
+   * explicit 404 rather than treating any unreadable package as gone.
+   *
+   * A read that never becomes conclusive — every attempt returned `unknown` —
+   * is reported as unchecked rather than as a failure, because a token that
+   * cannot see the package is an absence of evidence, not evidence of absence.
    * @param {Object} options - Verification options
    * @param {string} options.packageName - Package name
    * @param {boolean} options.apiCanSee - Whether the API saw the package before the change
-   * @param {(payload: Object|null) => boolean} options.accept - Success condition
+   * @param {(outcome: {state: string, payload: Object|null}) => boolean} options.accept - Success condition
    * @returns {Promise<{checked: boolean, verified: boolean, payload: Object|null}>} Result
    */
   async function verifyThroughApi({ packageName, apiCanSee, accept }) {
@@ -139,18 +168,24 @@ function createPackageReaders({
     }
 
     const deadline = Date.now() + verificationTimeout;
-    let payload = await readPackage(packageName);
+    let outcome = await readPackageOutcome(packageName);
+    let sawConclusiveRead = outcome.state !== 'unknown';
 
-    while (!accept(payload)) {
+    while (!accept(outcome)) {
       if (Date.now() >= deadline) {
-        return { checked: true, verified: false, payload };
+        return {
+          checked: sawConclusiveRead,
+          verified: false,
+          payload: outcome.payload,
+        };
       }
 
       await delay(VERIFICATION_INTERVAL_MS);
-      payload = await readPackage(packageName);
+      outcome = await readPackageOutcome(packageName);
+      sawConclusiveRead = sawConclusiveRead || outcome.state !== 'unknown';
     }
 
-    return { checked: true, verified: true, payload };
+    return { checked: true, verified: true, payload: outcome.payload };
   }
 
   /**
@@ -291,7 +326,7 @@ export function createPackageGateway({
       const check = await verifyThroughApi({
         packageName,
         apiCanSee: before !== null,
-        accept: (payload) => payload?.visibility === visibility,
+        accept: ({ payload }) => payload?.visibility === visibility,
       });
 
       if (check.checked && !check.verified) {
@@ -336,7 +371,7 @@ export function createPackageGateway({
       const check = await verifyThroughApi({
         packageName,
         apiCanSee: before !== null,
-        accept: (payload) => payload === null,
+        accept: ({ state }) => state === 'absent',
       });
 
       const verifiedBy = check.verified
