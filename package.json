@@ -1,6 +1,6 @@
 {
   "name": "@link-foundation/gh-manager",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Browser-automation CLI for GitHub operations the REST and GraphQL APIs do not expose, starting with package visibility, deletion, and permissions",
   "type": "module",
   "main": "src/index.js",
