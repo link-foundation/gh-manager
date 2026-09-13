@@ -26,7 +26,11 @@ export const SECURITY_FEATURES = [
     label: 'Dependency graph',
     summary: 'Resolve the dependencies of this repository',
     headings: ['dependency graph', 'dependency graph and dependabot alerts'],
-    read: { kind: 'sbom', path: 'dependency-graph/sbom' },
+    // GitHub builds the SBOM in the background, so the probe can still answer
+    // 404 for a graph that the settings page already shows as on. A negative
+    // answer inside the verification window therefore proves nothing, and
+    // `lagging` tells the gateway to fall back to the page for the proof.
+    read: { kind: 'sbom', path: 'dependency-graph/sbom', lagging: true },
     write: null,
   },
   {
