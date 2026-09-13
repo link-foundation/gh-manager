@@ -11,6 +11,11 @@
  */
 
 import { EXIT_CODES, CliError } from '../exit-codes.js';
+import {
+  VERIFICATION_INTERVAL_MS,
+  VERIFICATION_TIMEOUT_MS,
+  pollUntil,
+} from '../verification.js';
 import { gotoUrl } from '../browser/actions.js';
 import { readPageState } from '../browser/dom.js';
 import { listPackageNames } from '../browser/package-list.js';
@@ -19,23 +24,6 @@ import {
   setPackageVisibility,
 } from '../browser/package-settings.js';
 import { packageUrl } from '../browser/selectors.js';
-
-/** How long to keep re-reading the API before calling a change unverified. */
-const VERIFICATION_TIMEOUT_MS = 15000;
-
-/** Delay between verification reads. */
-const VERIFICATION_INTERVAL_MS = 1000;
-
-/**
- * Sleep, used only between API verification reads.
- * @param {number} ms - Milliseconds to wait
- * @returns {Promise<void>} Resolves after the delay
- */
-function delay(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
 
 /**
  * Build the reads the gateway performs: the API lookups, the browser
@@ -151,11 +139,11 @@ function createPackageReaders({
    * failure, it is an absence of evidence, and the caller falls back to reading
    * the page, and never pretends either way.
    * `accept` receives the full read outcome, so a caller can require an
-   * explicit 404 rather than treating any unreadable package as gone.
+   * explicit 404 and refuse to treat any unreadable package as gone.
    *
    * A read that never becomes conclusive — every attempt returned `unknown` —
-   * is reported as unchecked rather than as a failure, because a token that
-   * cannot see the package is an absence of evidence, not evidence of absence.
+   * is reported as unchecked and not as a failure, because a token that cannot
+   * see the package is an absence of evidence, not evidence of absence.
    * @param {Object} options - Verification options
    * @param {string} options.packageName - Package name
    * @param {boolean} options.apiCanSee - Whether the API saw the package before the change
@@ -167,25 +155,24 @@ function createPackageReaders({
       return { checked: false, verified: false, payload: null };
     }
 
-    const deadline = Date.now() + verificationTimeout;
-    let outcome = await readPackageOutcome(packageName);
-    let sawConclusiveRead = outcome.state !== 'unknown';
+    let sawConclusiveRead = false;
 
-    while (!accept(outcome)) {
-      if (Date.now() >= deadline) {
-        return {
-          checked: sawConclusiveRead,
-          verified: false,
-          payload: outcome.payload,
-        };
-      }
+    const { value, accepted } = await pollUntil({
+      read: async () => {
+        const outcome = await readPackageOutcome(packageName);
+        sawConclusiveRead = sawConclusiveRead || outcome.state !== 'unknown';
+        return outcome;
+      },
+      accept,
+      timeout: verificationTimeout,
+      interval: VERIFICATION_INTERVAL_MS,
+    });
 
-      await delay(VERIFICATION_INTERVAL_MS);
-      outcome = await readPackageOutcome(packageName);
-      sawConclusiveRead = sawConclusiveRead || outcome.state !== 'unknown';
-    }
-
-    return { checked: true, verified: true, payload: outcome.payload };
+    return {
+      checked: accepted || sawConclusiveRead,
+      verified: accepted,
+      payload: value.payload,
+    };
   }
 
   /**

@@ -11,12 +11,14 @@ import { authDomain } from './auth.js';
 import { configDomain } from './config.js';
 import { packageDomain } from './package.js';
 import { permissionsDomain } from './permissions.js';
+import { securityDomain } from './security.js';
 
 /** Domains that ship with gh-manager. */
 export const DOMAINS = [
   authDomain,
   packageDomain,
   permissionsDomain,
+  securityDomain,
   configDomain,
 ];
 
@@ -30,4 +32,10 @@ export function findDomain(domains, name) {
   return domains.find((domain) => domain.name === name);
 }
 
-export { authDomain, configDomain, packageDomain, permissionsDomain };
+export {
+  authDomain,
+  configDomain,
+  packageDomain,
+  permissionsDomain,
+  securityDomain,
+};

@@ -19,16 +19,20 @@ const EXPECTED_EXPORTS = [
   'FLAG_SPECS',
   'GitHubApiError',
   'ROLES',
+  'SECURITY_FEATURES',
+  'SECURITY_FEATURE_IDS',
   'VISIBILITIES',
   'appPaths',
   'createMatcher',
   'createPackageGateway',
   'createRestClient',
+  'createSecurityGateway',
   'describeOperation',
   'diffAccess',
   'ensureAppDir',
   'exitCodeForError',
   'findDomain',
+  'findSecurityFeature',
   'globToRegExpSource',
   'isOverBroadPattern',
   'loadStoredConfig',
@@ -36,6 +40,8 @@ const EXPECTED_EXPORTS = [
   'openBrowserSession',
   'parseArgs',
   'parsePolicy',
+  'parseRepoSpec',
+  'repoSlug',
   'resolveAppDir',
   'resolveOwner',
   'resolveSettings',
@@ -75,5 +81,18 @@ describe('library surface', () => {
   it('lists the visibilities and roles GitHub offers', () => {
     expect(ghManager.VISIBILITIES).toEqual(['public', 'private', 'internal']);
     expect(ghManager.ROLES).toEqual(['read', 'write', 'admin']);
+  });
+
+  it('names the code security settings it can manage', () => {
+    expect(ghManager.SECURITY_FEATURE_IDS).toEqual([
+      'dependency-graph',
+      'vulnerability-alerts',
+      'automated-security-fixes',
+      'secret-scanning',
+      'push-protection',
+    ]);
+    expect(ghManager.findSecurityFeature('dependency-graph').label).toBe(
+      'Dependency graph'
+    );
   });
 });

@@ -30,8 +30,15 @@ export {
   resolveTargets,
 } from './patterns.js';
 export { createRestClient, GitHubApiError } from './github/rest.js';
+export { parseRepoSpec, repoSlug } from './github/repo.js';
 export { resolveToken } from './github/token.js';
 export { createPackageGateway } from './packages/gateway.js';
+export { createSecurityGateway } from './security/gateway.js';
+export {
+  SECURITY_FEATURES,
+  SECURITY_FEATURE_IDS,
+  findSecurityFeature,
+} from './security/features.js';
 export {
   describeOperation,
   diffAccess,

@@ -156,6 +156,56 @@ export interface PackageGateway {
   deletePackage: (options: { packageName: string }) => Promise<DeleteResult>;
 }
 
+/** A repository, as gh-manager names one. */
+export interface Repository {
+  owner: string;
+  name: string;
+}
+
+/** One "Code security and analysis" setting gh-manager can manage. */
+export interface SecurityFeature {
+  id: string;
+  label: string;
+  summary: string;
+  headings: string[];
+  read: Record<string, unknown> | null;
+  write: Record<string, unknown> | null;
+  requires?: string;
+}
+
+/** What a read of one security setting concluded. */
+export interface SecurityStatus {
+  id: string;
+  label: string;
+  state: 'enabled' | 'disabled' | 'unknown';
+  /** Which half of GitHub answered: 'none' when neither could. */
+  source: 'api' | 'page' | 'none';
+  locked?: boolean;
+  reason?: string;
+}
+
+/** Result of setting one security setting. */
+export interface SecurityResult {
+  feature: string;
+  state: 'enabled' | 'disabled';
+  /** False when the setting already had the wanted state. */
+  changed: boolean;
+  /** What performed the change, null when nothing had to. */
+  changedBy: 'api' | 'browser' | null;
+  /** What proved the outcome. */
+  verifiedBy: 'api' | 'page' | 'none';
+}
+
+/** Reads and writes for the security settings of one repository. */
+export interface SecurityGateway {
+  readFeature: (feature: SecurityFeature) => Promise<SecurityStatus>;
+  readAll: () => Promise<SecurityStatus[]>;
+  setFeature: (options: {
+    feature: SecurityFeature;
+    enabled: boolean;
+  }) => Promise<SecurityResult>;
+}
+
 /** A browser session bound to the persistent gh-manager profile. */
 export interface BrowserSession {
   commander: Record<string, unknown>;
@@ -327,6 +377,33 @@ export declare const createPackageGateway: (options: {
   getSession: () => Promise<BrowserSession>;
   verificationTimeout?: number;
 }) => PackageGateway;
+
+/** Reads and writes for the security settings of one repository. */
+export declare const createSecurityGateway: (options: {
+  repo: Repository;
+  rest: RestClient;
+  log: unknown;
+  getSession: () => Promise<BrowserSession>;
+  verificationTimeout?: number;
+}) => SecurityGateway;
+
+/** The code security settings gh-manager can read and set. */
+export declare const SECURITY_FEATURES: SecurityFeature[];
+
+/** Identifiers of the code security settings, in listing order. */
+export declare const SECURITY_FEATURE_IDS: string[];
+
+/** Look up one security setting by the name the command line uses. */
+export declare const findSecurityFeature: (id: string) => SecurityFeature;
+
+/** Render a repository as `owner/name`. */
+export declare const repoSlug: (repo: Repository) => string;
+
+/** Parse one repository target, `owner/repo` or `repo`. */
+export declare const parseRepoSpec: (
+  spec: string,
+  options: { defaultOwner: () => PackageOwner }
+) => Repository;
 
 /** Describe one operation in a line a human can approve. */
 export declare const describeOperation: (operation: AccessOperation) => string;

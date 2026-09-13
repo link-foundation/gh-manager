@@ -173,6 +173,49 @@ export const SELECTORS = {
   },
 };
 
+/**
+ * Page holding a repository's "Code security and analysis" settings.
+ *
+ * Several of the toggles on it exist nowhere else: the dependency graph has
+ * no REST endpoint, no GraphQL mutation, and no `gh` command, so this page is
+ * the only way to flip it.
+ * @param {{owner: string, name: string}} repo - Repository descriptor
+ * @returns {string} URL
+ */
+export function repoSecuritySettingsUrl(repo) {
+  const owner = encodeURIComponent(repo.owner);
+  const name = encodeURIComponent(repo.name);
+  return `${GITHUB_ORIGIN}/${owner}/${name}/settings/security_analysis`;
+}
+
+/**
+ * Wording of the buttons that flip one security feature.
+ *
+ * Matched as whole labels, never as substrings, and never when the label
+ * mentions "all": a page that offers "Enable all" alongside the per-feature
+ * buttons must not have that one clicked by a command naming one feature.
+ */
+export const SECURITY_CONTROLS = {
+  enable: ['enable'],
+  disable: ['disable'],
+};
+
+/**
+ * Phrases that mean a toggle is not this account's to flip.
+ *
+ * An organization or enterprise policy leaves the control on the page but
+ * inert, so clicking it would look like success and change nothing.
+ */
+export const SECURITY_LOCK_PHRASES = [
+  'enforced by',
+  'managed by a security configuration',
+  'managed by your organization',
+  'managed by the organization',
+  'managed by your enterprise',
+  'contact your organization owner',
+  'contact an organization owner',
+];
+
 /** Attribute used to hand a matched element to the click helpers. */
 export const MARK_ATTRIBUTE = 'data-gh-manager-target';
 

@@ -22,6 +22,8 @@ export const FLAG_SPECS = {
   pattern: { key: 'pattern', type: 'string' },
   regex: { key: 'regex', type: 'boolean' },
   all: { key: 'all', type: 'boolean' },
+  enable: { key: 'enable', type: 'boolean' },
+  disable: { key: 'disable', type: 'boolean' },
   'dry-run': { key: 'dryRun', type: 'boolean' },
   yes: { key: 'yes', type: 'boolean', alias: 'y' },
   headless: { key: 'headless', type: 'boolean' },

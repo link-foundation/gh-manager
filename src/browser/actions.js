@@ -8,6 +8,7 @@
  */
 
 import { CliError, EXIT_CODES } from '../exit-codes.js';
+import { pollUntil } from '../verification.js';
 import { MARKED_SELECTOR, markTarget } from './dom.js';
 
 /**
@@ -72,23 +73,18 @@ export function assertSignedIn(state) {
  * @param {() => number} [options.now] - Clock, injectable for tests
  * @returns {Promise<{value: any, accepted: boolean}>} Last reading
  */
-export async function pollFor(
+export function pollFor(
   session,
   { read, accept, timeout = 10000, interval = 250, now = Date.now }
 ) {
-  const deadline = now() + timeout;
-  let value = await read();
-
-  while (!accept(value)) {
-    if (now() >= deadline) {
-      return { value, accepted: false };
-    }
-
-    await session.commander.wait({ ms: interval, reason: 'waiting for page' });
-    value = await read();
-  }
-
-  return { value, accepted: true };
+  return pollUntil({
+    read,
+    accept,
+    timeout,
+    interval,
+    now,
+    sleep: (ms) => session.commander.wait({ ms, reason: 'waiting for page' }),
+  });
 }
 
 /**
