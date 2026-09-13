@@ -1,12 +1,13 @@
 # gh-manager
 
-A globally installable CLI for the GitHub package operations the REST and
-GraphQL APIs do not expose: flipping container package visibility, deleting
-packages in bulk, and managing package-level permissions.
+A globally installable CLI for the GitHub operations the REST and GraphQL APIs
+do not expose: flipping container package visibility, deleting packages in bulk,
+managing package-level permissions, and switching a repository's code security
+settings, the dependency graph among them.
 
-GitHub has no endpoint for any of those three. The only place they exist is the
-web UI, so gh-manager drives a real browser for the writes, and uses the API for
-the reads and for verifying that a write actually landed.
+GitHub has no endpoint for any of those. The only place they exist is the web
+UI, so gh-manager drives a real browser for the writes, and uses the API for the
+reads and for verifying that a write actually landed.
 
 ```bash
 npm i -g @link-foundation/gh-manager
@@ -19,6 +20,9 @@ gh-manager package public box box-dind --org link-foundation
 - **One login, reused**: a dedicated Chrome profile in `~/.gh-manager/`
   survives SSO and 2FA, which a personal access token cannot carry
 - **Hybrid strategy**: API reads, browser writes, API re-read to verify
+- **Whatever GitHub left out of its API**: the dependency graph toggle has no
+  REST or GraphQL endpoint at all, so the settings page is the only way to set
+  it — and the SBOM endpoint is the only way to prove it is on
 - **No false "no packages found"**: an empty API listing falls back to
   enumerating the packages the browser can see
 - **Safe bulk operations**: patterns are resolved against the packages that
@@ -60,16 +64,22 @@ gh-manager package public box box-dind
 # Delete everything matching a glob, showing the plan first.
 gh-manager package delete --pattern 'box-test-*' --dry-run
 gh-manager package delete --pattern 'box-test-*'
+
+# Turn on the dependency graph a dependency-review workflow needs.
+gh-manager security dependency-graph link-foundation/gh-manager --enable
 ```
 
 ## How it works
 
-| Operation                  | Read          | Write   | Verify         |
-| -------------------------- | ------------- | ------- | -------------- |
-| List packages              | API → browser | —       | —              |
-| Change visibility          | API           | Browser | API, then page |
-| Delete a package           | API           | Browser | API, then page |
-| List or change permissions | Browser       | Browser | Page re-read   |
+| Operation                    | Read          | Write         | Verify          |
+| ---------------------------- | ------------- | ------------- | --------------- |
+| List packages                | API → browser | —             | —               |
+| Change visibility            | API           | Browser       | API, then page  |
+| Delete a package             | API           | Browser       | API, then page  |
+| List or change permissions   | Browser       | Browser       | Page re-read    |
+| Read code security settings  | API → browser | —             | —               |
+| Set the dependency graph     | SBOM probe    | Browser       | SBOM, then page |
+| Set another security setting | API           | API → browser | API, then page  |
 
 `GET /orgs/{org}/packages?package_type=container` answers with an empty array
 for a token without the package scopes. gh-manager treats an empty listing as
@@ -82,6 +92,14 @@ token, or a token without scopes — that is reported as an absence of evidence
 and the page itself is read instead. A change that cannot be confirmed either
 way fails with `VERIFICATION_FAILED` (exit code 6); it is never reported as a
 success.
+
+The dependency graph is the one setting with no endpoint on either side. Its
+state is probed with `GET /repos/{owner}/{repo}/dependency-graph/sbom`, which
+answers with a document while the graph is on and `404` while it is off. GitHub
+builds that document in the background, so a `404` right after the toggle was
+flipped is not evidence that the flip failed; when the SBOM has not appeared
+within the verification window, the settings page is read again and the command
+says which of the two confirmed the change.
 
 ## Commands
 
@@ -138,6 +156,63 @@ command:
 ```bash
 gh-manager package permissions list --pattern 'box*' --org link-foundation
 ```
+
+### security
+
+```bash
+gh-manager security status link-foundation/gh-manager
+gh-manager security dependency-graph link-foundation/gh-manager --enable
+gh-manager security vulnerability-alerts link-foundation/gh-manager --enable --yes
+gh-manager security automated-security-fixes link-foundation/gh-manager --enable
+gh-manager security secret-scanning link-foundation/gh-manager --enable
+gh-manager security push-protection link-foundation/gh-manager --disable
+```
+
+These are the toggles of `/settings/security_analysis`. Targets are
+repositories, written as `<owner>/<repo>` or as `<repo>` together with `--org`
+or `--account`; a pattern is refused, so every repository is named.
+
+The dependency graph is why the domain exists. A repository whose graph is off
+fails `actions/dependency-review` with "Dependency review is not supported on
+this repository", and GitHub publishes no REST endpoint, no GraphQL mutation,
+and no `gh` command for the toggle — only the page. gh-manager clicks it and
+then asks for the SBOM the graph makes possible, because that document is the
+only evidence the graph is on.
+
+Every change asks for a confirmation, however the repository was named: turning
+a protection off removes it, and turning one on can start alerting a whole
+organization. `--yes` answers in advance, and `--dry-run` prints the plan and
+stops.
+
+A setting that already has the wanted state is reported as such and exits `0`,
+so re-running a command is never an error. `--json` reports which of the two
+happened, along with what performed the change and what proved it:
+
+```bash
+$ gh-manager security dependency-graph link-foundation/gh-manager --enable --yes --json
+[
+  {
+    "target": "link-foundation/gh-manager",
+    "ok": true,
+    "feature": "dependency-graph",
+    "state": "enabled",
+    "changed": true,
+    "changedBy": "browser",
+    "verifiedBy": "api"
+  }
+]
+```
+
+Two settings depend on another one, and GitHub refuses them with a bare `422`
+when the dependency is missing, so gh-manager names the missing one before
+anything is touched: Dependabot security updates need Dependabot alerts, and
+push protection needs secret scanning.
+
+A toggle an organization or enterprise policy owns cannot be flipped from a
+repository at all. gh-manager refuses it with the screenshot and the page HTML
+in `~/.gh-manager/logs/` and a non-zero exit, rather than reporting a change it
+did not make. To set these switches across an organization, GitHub does offer an
+API: [code security configurations](https://docs.github.com/en/rest/code-security/configurations).
 
 ### config
 
@@ -276,7 +351,8 @@ expects, the failure writes `<label>.png` and `<label>.html` to
 
 - `--verbose` prints the navigation and page-state trace.
 - `--json` prints machine-readable output for `package list`,
-  `permissions list`, and `config list`.
+  `permissions list`, `config list`, `security status`, and every `security`
+  change verb.
 - All the GitHub selectors live in `src/browser/selectors.js`, so a UI change
   is a one-file fix.
 
@@ -289,6 +365,14 @@ expects, the failure writes `<label>.png` and `<label>.html` to
   `src/browser/selectors.js` updated; the tests in `tests/browser-*.test.js`
   run against fixture pages and will fail loudly when a driver stops matching.
 - `auth login` cannot run headless, by design.
+- The dependency graph can only be confirmed through the SBOM endpoint, which
+  documents no `ref` parameter: it answers for the default branch, and only
+  once GitHub has built the document. A change the SBOM has not caught up with
+  is confirmed by re-reading the settings page, and the output says so.
+- Repository-level security toggles are refused when an organization or
+  enterprise policy owns them. That is GitHub's rule, not a gh-manager
+  limitation; the organization-wide equivalent is the code security
+  configurations API.
 
 ## Library use
 
@@ -306,6 +390,8 @@ import {
 
 `runCli(argv, options)` returns an exit code and never calls `process.exit`, so
 a whole command line can be run in process.
+`examples/enable-dependency-graph.js` does exactly that, turning the dependency
+graph on for a list of repositories and branching on the code each one returns.
 
 ## Development
 
@@ -332,6 +418,12 @@ bun run check
 # Try the pure parts without a browser
 node examples/basic-usage.js
 
+# Turn the dependency graph on for one or more repositories
+node examples/enable-dependency-graph.js owner/repo
+
+# See what the API can say about a repository's security settings
+GITHUB_TOKEN=$(gh auth token) node experiments/security-settings-endpoints.mjs owner/repo
+
 # Build the universal React example app
 npm install --prefix examples/universal-app
 npm run example:web:build
@@ -352,10 +444,11 @@ npm run example:desktop:package
 ├── src/
 │   ├── browser/          # Page drivers and every GitHub selector
 │   ├── cli/              # Argument parsing, prompts, entry point
-│   ├── domains/          # Command domains: auth, package, permissions, config
+│   ├── domains/          # Command domains: auth, package, permissions, security, config
 │   ├── github/           # REST client and token discovery
 │   ├── packages/         # The hybrid API/browser gateway
 │   ├── permissions/      # Policy parsing and access diffing
+│   ├── security/         # Code security settings: features, API, gateway
 │   ├── index.js          # Library entry point
 │   └── index.d.ts        # TypeScript definitions
 ├── tests/                # Test files
