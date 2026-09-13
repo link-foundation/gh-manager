@@ -1,9 +1,11 @@
 /**
- * Minimal GitHub REST client for the read half of the tool.
+ * Minimal GitHub REST client.
  *
- * Reading package state through the API is faster and far more reliable than
- * scraping it, so every read goes through here first. The write half stays in
- * the browser because GitHub exposes no API for it.
+ * Reading state through the API is faster and far more reliable than scraping
+ * it, so every read goes through here first. Writes stay in the browser
+ * wherever GitHub exposes no endpoint for them — package visibility, package
+ * deletion, the dependency graph toggle — and go through `send` where an
+ * endpoint does exist, because an API write is the more precise instrument.
  */
 
 const API_BASE_URL = 'https://api.github.com';
@@ -37,6 +39,36 @@ export function ownerPath(owner) {
 }
 
 /**
+ * Build the REST path prefix for a repository.
+ * @param {{owner: string, name: string}} repo - Repository descriptor
+ * @returns {string} Path prefix such as `/repos/link-foundation/gh-manager`
+ */
+export function repoPath(repo) {
+  return `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
+}
+
+/**
+ * Read the body of a response, tolerating the empty ones GitHub returns.
+ *
+ * Several of the security endpoints answer `204 No Content` for "yes" and
+ * `404` for "no", so a client that insists on parsing JSON cannot talk to
+ * them at all.
+ * @param {Object} response - fetch response
+ * @returns {Promise<any>} Parsed body, or null when there is none
+ */
+async function readBody(response) {
+  if (response.status === 204 || response.status === 205) {
+    return null;
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Create a REST client bound to a token.
  * @param {Object} [options] - Client options
  * @param {string|null} [options.token] - Bearer token, or null for anonymous
@@ -50,13 +82,17 @@ export function createRestClient({
   baseUrl = API_BASE_URL,
 } = {}) {
   /**
-   * Perform one API request.
+   * Perform one API request and report its status without throwing.
+   *
+   * The status is the answer for the endpoints that carry their meaning in it
+   * (`204` enabled, `404` disabled), so it is never swallowed here.
    * @param {string} apiPath - Path beginning with a slash
    * @param {Object} [options] - Request options
-   * @param {boolean} [options.allowNotFound] - Return null for a 404
-   * @returns {Promise<any>} Parsed JSON body, or null for a tolerated 404
+   * @param {string} [options.method] - HTTP method
+   * @param {any} [options.body] - JSON body to send
+   * @returns {Promise<{status: number, ok: boolean, body: any}>} Response
    */
-  async function request(apiPath, { allowNotFound = false } = {}) {
+  async function send(apiPath, { method = 'GET', body = null } = {}) {
     const headers = {
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
@@ -67,7 +103,32 @@ export function createRestClient({
       headers.authorization = `Bearer ${token}`;
     }
 
-    const response = await fetchImpl(`${baseUrl}${apiPath}`, { headers });
+    if (body !== null) {
+      headers['content-type'] = 'application/json';
+    }
+
+    const response = await fetchImpl(`${baseUrl}${apiPath}`, {
+      method,
+      headers,
+      ...(body === null ? {} : { body: JSON.stringify(body) }),
+    });
+
+    return {
+      status: response.status,
+      ok: Boolean(response.ok),
+      body: await readBody(response),
+    };
+  }
+
+  /**
+   * Perform one API request, raising for anything but success.
+   * @param {string} apiPath - Path beginning with a slash
+   * @param {Object} [options] - Request options
+   * @param {boolean} [options.allowNotFound] - Return null for a 404
+   * @returns {Promise<any>} Parsed JSON body, or null for a tolerated 404
+   */
+  async function request(apiPath, { allowNotFound = false } = {}) {
+    const response = await send(apiPath);
 
     if (response.status === 404 && allowNotFound) {
       return null;
@@ -80,12 +141,13 @@ export function createRestClient({
       });
     }
 
-    return response.json();
+    return response.body;
   }
 
   return {
     hasToken: Boolean(token),
     request,
+    send,
 
     /**
      * List every package of a type for an owner, following pagination.

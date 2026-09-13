@@ -4,68 +4,12 @@
 
 import { describe, it, expect } from 'test-anywhere';
 
-import {
-  GitHubApiError,
-  createRestClient,
-  ownerPath,
-} from '../src/github/rest.js';
+import { GitHubApiError, ownerPath } from '../src/github/rest.js';
 import {
   TOKEN_ENVIRONMENT_VARIABLES,
   resolveToken,
 } from '../src/github/token.js';
-
-/**
- * Build a fetch implementation that answers from a table of paths.
- * @param {Object} routes - Map of path to `{status, body}` or an array of them
- * @returns {Function} fetch replacement recording the calls it received
- */
-function fakeFetch(routes) {
-  const calls = [];
-
-  /**
-   * @param {string} url - Requested URL
-   * @param {Object} options - Request options
-   * @returns {Promise<Object>} Response-like object
-   */
-  async function impl(url, options) {
-    calls.push({ url, headers: options.headers });
-    const path = url.replace('https://api.github.test', '');
-    const route = routes[path];
-
-    if (!route) {
-      return { ok: false, status: 404, json: async () => ({}) };
-    }
-
-    const answer = Array.isArray(route) ? route.shift() : route;
-
-    return {
-      ok: answer.status === undefined || answer.status < 400,
-      status: answer.status ?? 200,
-      json: async () => answer.body,
-    };
-  }
-
-  impl.calls = calls;
-  return impl;
-}
-
-/**
- * Create a client bound to the fake API host.
- * @param {Object} routes - Route table for fakeFetch
- * @param {Object} [options] - Extra client options
- * @returns {Object} REST client with the fetch implementation attached
- */
-function clientFor(routes, options = {}) {
-  const fetchImpl = fakeFetch(routes);
-  const client = createRestClient({
-    token: 'test-token',
-    fetch: fetchImpl,
-    baseUrl: 'https://api.github.test',
-    ...options,
-  });
-  client.fetchImpl = fetchImpl;
-  return client;
-}
+import { restClientFor } from './fixtures/fake-github-api.js';
 
 const owner = { scope: 'orgs', name: 'link-foundation' };
 
@@ -119,7 +63,7 @@ describe('ownerPath', () => {
 
 describe('createRestClient', () => {
   it('sends the documented API headers and the bearer token', async () => {
-    const client = clientFor({
+    const client = restClientFor({
       '/orgs/link-foundation/packages/container/box': { body: { name: 'box' } },
     });
 
@@ -137,7 +81,7 @@ describe('createRestClient', () => {
   });
 
   it('omits the authorization header without a token', async () => {
-    const client = clientFor(
+    const client = restClientFor(
       { '/orgs/link-foundation/packages/container/box': { body: {} } },
       { token: null }
     );
@@ -154,7 +98,7 @@ describe('createRestClient', () => {
   });
 
   it('returns null for a package that does not exist', async () => {
-    const client = clientFor({});
+    const client = restClientFor({});
 
     expect(
       await client.getPackage({
@@ -166,7 +110,7 @@ describe('createRestClient', () => {
   });
 
   it('raises a GitHubApiError for other failures', async () => {
-    const client = clientFor({
+    const client = restClientFor({
       '/orgs/link-foundation/packages/container/box': { status: 403, body: {} },
     });
 
@@ -191,7 +135,7 @@ describe('createRestClient', () => {
       body: names.map((name) => ({ name, visibility: 'private' })),
     });
     const full = Array.from({ length: 100 }, (unused, index) => `box-${index}`);
-    const client = clientFor({
+    const client = restClientFor({
       '/orgs/link-foundation/packages?package_type=container&per_page=100&page=1':
         page(full),
       '/orgs/link-foundation/packages?package_type=container&per_page=100&page=2':
@@ -208,7 +152,7 @@ describe('createRestClient', () => {
   });
 
   it('stops listing on the first empty page', async () => {
-    const client = clientFor({
+    const client = restClientFor({
       '/orgs/link-foundation/packages?package_type=container&per_page=100&page=1':
         { body: [] },
     });
