@@ -480,3 +480,199 @@ export function confirmationPhrase(dialogText) {
 
   return match[1].replace(/^["'`]+|["'`:.]+$/g, '').trim() || null;
 }
+
+/**
+ * Read the security feature rows of the "Code security and analysis" page, and
+ * optionally mark the control that flips one of them.
+ *
+ * Reading and marking share one page function because they share all of their
+ * risk. A security row is found by its heading text and then by climbing to
+ * the nearest ancestor that carries an Enable or a Disable button, and both
+ * steps have to agree: marking a control the reader never attributed to this
+ * feature is how a tool ends up switching off the wrong protection. The climb
+ * stops at the first ancestor holding a control, and a container spanning the
+ * headings of two features is refused as ambiguous.
+ *
+ * Control labels are compared whole, so "Enable all" — the button GitHub puts
+ * at the top of the page to switch every feature on together — can never
+ * satisfy a command that named a single feature.
+ * @param {Object} commander - browser-commander instance
+ * @param {Object} options - Inspection options
+ * @param {Array<{id: string, headings: string[]}>} options.features - Features to look for
+ * @param {{enable: string[], disable: string[]}} options.controls - Lowercase control labels
+ * @param {string[]} options.lockPhrases - Wording that means a policy owns the toggle
+ * @param {{feature: string, action: string}|null} [options.mark] - Control to mark
+ * @returns {Promise<{rows: Array<Object>, marked: Object|null}>} Row states and marking result
+ */
+export function inspectSecurityRows(
+  commander,
+  { features, controls, lockPhrases, mark = null }
+) {
+  return commander.evaluate({
+    fn: ({ attribute, wanted, enableLabels, disableLabels, locks, target }) => {
+      for (const marked of document.querySelectorAll(`[${attribute}]`)) {
+        marked.removeAttribute(attribute);
+      }
+
+      const CONTROLS =
+        'button, a, summary, input[type="submit"], [role="button"]';
+      const HEADINGS =
+        'h1, h2, h3, h4, h5, h6, strong, b, summary, label, legend, span, div, p, td, th, a';
+
+      const normalize = (value) =>
+        String(value || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+
+      const labelOf = (element) =>
+        normalize(
+          [
+            element.innerText || '',
+            element.getAttribute('aria-label') || '',
+            element.value || '',
+          ].join(' ')
+        );
+
+      const headings = [];
+
+      for (const element of document.querySelectorAll(HEADINGS)) {
+        const text = normalize(element.innerText || element.textContent);
+        const feature = wanted.find((entry) => entry.headings.includes(text));
+
+        if (feature) {
+          headings.push({ id: feature.id, element });
+        }
+      }
+
+      // The same wording matches a heading and every wrapper around it, so the
+      // innermost element wins: the wrappers are what would make a row look
+      // like it spans two features.
+      const innermost = headings.filter(
+        (heading) =>
+          !headings.some(
+            (other) =>
+              other !== heading &&
+              other.id === heading.id &&
+              heading.element.contains(other.element)
+          )
+      );
+
+      const controlIn = (container, labels) => {
+        for (const control of container.querySelectorAll(CONTROLS)) {
+          if (labels.includes(labelOf(control))) {
+            return control;
+          }
+        }
+
+        return null;
+      };
+
+      const rowOf = (element) => {
+        let node = element;
+
+        for (let step = 0; step < 6 && node; step += 1) {
+          if (controlIn(node, enableLabels) || controlIn(node, disableLabels)) {
+            return node;
+          }
+
+          node = node.parentElement;
+        }
+
+        return null;
+      };
+
+      const featuresIn = (row) =>
+        new Set(
+          innermost
+            .filter((heading) => row.contains(heading.element))
+            .map((heading) => heading.id)
+        ).size;
+
+      const rowFor = (id) => {
+        const heading = innermost.find((entry) => entry.id === id);
+
+        if (!heading) {
+          return { reason: 'no-heading' };
+        }
+
+        const row = rowOf(heading.element);
+
+        if (!row) {
+          return { reason: 'no-control' };
+        }
+
+        return featuresIn(row) > 1 ? { reason: 'ambiguous-row' } : { row };
+      };
+
+      const inspect = (feature) => {
+        const { row, reason } = rowFor(feature.id);
+
+        if (!row) {
+          return {
+            id: feature.id,
+            found: false,
+            state: 'unknown',
+            locked: false,
+            reason,
+          };
+        }
+
+        const disable = controlIn(row, disableLabels);
+        const control = disable || controlIn(row, enableLabels);
+        const text = normalize(row.innerText);
+
+        return {
+          id: feature.id,
+          found: true,
+          state: disable ? 'enabled' : 'disabled',
+          locked:
+            control.hasAttribute('disabled') ||
+            control.getAttribute('aria-disabled') === 'true' ||
+            locks.some((phrase) => text.includes(phrase)),
+          text: (row.innerText || '').trim().slice(0, 300),
+        };
+      };
+
+      const markControl = () => {
+        const { row, reason } = rowFor(target.feature);
+
+        if (!row) {
+          return { found: false, reason };
+        }
+
+        const labels =
+          target.action === 'enable' ? enableLabels : disableLabels;
+        const control = controlIn(row, labels);
+
+        if (!control) {
+          return { found: false, reason: 'no-such-control' };
+        }
+
+        control.setAttribute(attribute, '1');
+        return {
+          found: true,
+          text: (control.innerText || '').trim().slice(0, 120),
+        };
+      };
+
+      return {
+        rows: wanted.map(inspect),
+        marked: target ? markControl() : null,
+      };
+    },
+    args: [
+      {
+        attribute: MARK_ATTRIBUTE,
+        wanted: features.map((feature) => ({
+          id: feature.id,
+          headings: feature.headings,
+        })),
+        enableLabels: controls.enable,
+        disableLabels: controls.disable,
+        locks: lockPhrases,
+        target: mark,
+      },
+    ],
+  });
+}
