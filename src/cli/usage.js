@@ -23,7 +23,7 @@ function padder(names) {
 export function formatUsage(domains) {
   const pad = padder(domains.map((domain) => domain.name));
   const lines = [
-    'gh-manager - manage GitHub packages through a real browser session',
+    'gh-manager - manage GitHub through a real browser session, where the API cannot',
     '',
     'Usage: gh-manager <domain> <verb> [targets...] [options]',
     '',
@@ -37,6 +37,7 @@ export function formatUsage(domains) {
     '  --pattern <glob>      Select packages by name pattern',
     '  --regex               Treat --pattern as a regular expression',
     '  --all                 Allow a pattern that selects everything',
+    '  --enable, --disable   Which way to set a security setting',
     '  --dry-run             Show what would happen, change nothing',
     '  --yes, -y             Answer confirmation prompts in advance',
     '  --headless            Run the browser without a window',
