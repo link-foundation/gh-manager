@@ -44,10 +44,13 @@ export async function confirmPlan(
   context,
   { title, items, fromPattern = false, always = false }
 ) {
-  context.log.info(title);
+  // Under `--json` the plan goes to the debug channel, so standard output
+  // holds nothing but the document a script is meant to parse.
+  const show = context.flags.json ? context.log.debug : context.log.info;
+  show(title);
 
   for (const item of items) {
-    context.log.info(`  - ${item}`);
+    show(`  - ${item}`);
   }
 
   if (context.flags.dryRun || !(always || fromPattern)) {
@@ -80,6 +83,10 @@ export function stopForDryRun(context) {
 /**
  * Run an operation for every item, reporting each result as it happens.
  *
+ * With `--json` the per-item lines give way to one array covering every item,
+ * so a script can read what each operation did — and, for a change that was
+ * already in place, that it did nothing.
+ *
  * One failure does not cancel the rest: the remaining items are still
  * processed and the exit code reports the first failure, so a bulk run never
  * stops halfway with an unclear outcome.
@@ -96,14 +103,30 @@ export async function applyAll(
   { items, run, describe, label = String }
 ) {
   const failures = [];
+  const report = [];
 
   for (const item of items) {
     try {
-      context.log.info(describe(item, await run(item)));
+      const result = await run(item);
+      report.push({ target: label(item), ok: true, ...result });
+
+      if (!context.flags.json) {
+        context.log.info(describe(item, result));
+      }
     } catch (error) {
       failures.push(error);
+      report.push({
+        target: label(item),
+        ok: false,
+        error: error.message,
+        exitCode: exitCodeForError(error),
+      });
       context.log.error(`${label(item)}: ${error.message}`);
     }
+  }
+
+  if (context.flags.json) {
+    printJson(context, report);
   }
 
   if (failures.length === 0) {

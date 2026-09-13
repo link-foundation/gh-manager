@@ -12,6 +12,7 @@ import { createRestClient } from '../github/rest.js';
 import { resolveToken } from '../github/token.js';
 import { createLogger } from '../logging.js';
 import { createPackageGateway } from '../packages/gateway.js';
+import { createSecurityGateway } from '../security/gateway.js';
 import { createConfirm } from './prompt.js';
 
 /**
@@ -51,6 +52,7 @@ export function createRunContext({
 
   let sessionPromise = null;
   let gateway = null;
+  const securityGateways = new Map();
 
   /**
    * Open the browser session, or return the one this run already opened.
@@ -98,6 +100,29 @@ export function createRunContext({
       });
 
       return gateway;
+    },
+
+    /**
+     * The security gateway of one repository, created on first use.
+     * @param {{owner: string, name: string}} repo - Repository
+     * @returns {Object} Security gateway
+     */
+    security(repo) {
+      const key = `${repo.owner}/${repo.name}`;
+
+      if (!securityGateways.has(key)) {
+        securityGateways.set(
+          key,
+          (deps.createSecurity ?? createSecurityGateway)({
+            repo,
+            rest,
+            log,
+            getSession,
+          })
+        );
+      }
+
+      return securityGateways.get(key);
     },
 
     /**

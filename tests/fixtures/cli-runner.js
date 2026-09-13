@@ -4,7 +4,9 @@
  * `runCli` returns an exit code and never calls `process.exit`, so a test can
  * run the real argument parsing, the real gateway, and the real page drivers in
  * process. Only the four seams the CLI already injects are replaced here: the
- * token, the REST client, the browser session, and the confirmation.
+ * token, the REST client, the browser session, and the confirmation — and the
+ * confirmation can be left in place, so a test can prove what `--yes` does to
+ * the prompt an operator would otherwise see.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -83,11 +85,15 @@ export function fakeGitHub(specs, { apiListing = true, hasToken = true } = {}) {
  * Run one command line against a fake GitHub.
  * @param {string[]} argv - Command line, without the executable
  * @param {Object} [options] - Run options
- * @param {Object} [options.github] - Result of fakeGitHub
+ * @param {Object} [options.github] - Result of fakeGitHub or of securityGitHub
  * @param {Function} [options.confirm] - Confirmation stand-in
+ * @param {boolean} [options.realPrompt] - Keep the shipped confirmation
  * @returns {Promise<Object>} Exit code, output, questions asked, and sessions
  */
-export async function runCommand(argv, { github, confirm } = {}) {
+export async function runCommand(
+  argv,
+  { github, confirm, realPrompt = false } = {}
+) {
   const home = mkdtempSync(join(tmpdir(), 'gh-manager-cli-'));
   const out = [];
   const err = [];
@@ -111,10 +117,14 @@ export async function runCommand(argv, { github, confirm } = {}) {
           sessions.push(session);
           return session;
         },
-        confirm: async (question) => {
-          asked.push(question);
-          return confirm ? confirm(question) : true;
-        },
+        ...(realPrompt
+          ? {}
+          : {
+              confirm: async (question) => {
+                asked.push(question);
+                return confirm ? confirm(question) : true;
+              },
+            }),
       },
     });
 
