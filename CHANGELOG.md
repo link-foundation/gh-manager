@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+
+### Minor Changes
+
+- 1a54e09: Add organization, repository and environment Actions secret management with sealed-box encryption, metadata, registry-driven token rotation, companion expiry variables, workflow auditing and GitHub App credential setup. Prefer trusted publishing and remove the npm publishing token fallback.
+
 ## 0.14.0
 
 ### Minor Changes
