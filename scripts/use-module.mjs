@@ -37,8 +37,8 @@ import { debug } from './debug-print.mjs';
 /** Unpinned CDN entry point for use-m, kept in one place. */
 export const USE_M_URL = 'https://unpkg.com/use-m/use.js';
 
-/** Cached `use` function, so a process fetches use.js at most once. */
-let cachedUse = null;
+/** Cache loaders by URL; injected fetch implementations bypass the cache. */
+const cachedUse = new Map();
 
 /**
  * Candidate containers for the real module object, in resolution order.
@@ -206,8 +206,9 @@ function loadSettings(options) {
 export async function loadUse(options = {}) {
   const settings = loadSettings(options);
   const { url, attempts } = settings;
-  if (cachedUse && !options.fetchImpl) {
-    return cachedUse;
+  if (cachedUse.has(url) && !options.fetchImpl) {
+    debug('reused cached use-m', { url });
+    return cachedUse.get(url);
   }
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -215,7 +216,7 @@ export async function loadUse(options = {}) {
       const use = await fetchUseOnce(settings);
       debug('loaded use-m', { url, attempt });
       if (!options.fetchImpl) {
-        cachedUse = use;
+        cachedUse.set(url, use);
       }
       return use;
     } catch (error) {

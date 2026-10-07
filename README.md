@@ -17,6 +17,8 @@ gh-manager package public box box-dind --org link-foundation
 
 ## Features
 
+- Organization, repository and environment Actions secrets: encrypted storage, expiry-driven rotation and publishing-policy audits.
+
 - **One login, reused**: a dedicated Chrome profile in `~/.gh-manager/`
   survives SSO and 2FA, which a personal access token cannot carry
 - **Hybrid strategy**: API reads, browser writes, API re-read to verify
@@ -214,6 +216,72 @@ in `~/.gh-manager/logs/` and a non-zero exit, rather than reporting a change it
 did not make. To set these switches across an organization, GitHub does offer an
 API: [code security configurations](https://docs.github.com/en/rest/code-security/configurations).
 
+### secret
+
+Actions secrets for organizations, repositories and environments are managed through the authenticated REST API. Secret values enter through stdin or the library API and are encrypted with GitHub's public key using a libsodium sealed box. Values never appear in output, dry-run plans or debug logs.
+
+```bash
+# Organization scope; selected repositories are the default access level.
+gh-manager secret set DOCKERHUB_TOKEN --org link-foundation --repos gh-manager < token.txt
+gh-manager secret list --org link-foundation --repo gh-manager --json
+gh-manager secret get-metadata DOCKERHUB_TOKEN --org link-foundation
+
+# Repository and environment scopes.
+gh-manager secret set MAVEN_TOKEN --repo link-foundation/project < token.txt
+gh-manager secret set MAVEN_TOKEN --repo link-foundation/project --env production < token.txt
+
+# Rotate only if absent, invalid, expired or within seven days of expiry.
+gh-manager secret ensure DOCKERHUB_TOKEN --org link-foundation --repos gh-manager --validator ./registry.mjs
+# Without a module, stdin supplies a replacement only when one is needed.
+gh-manager secret ensure DOCKERHUB_TOKEN --repo link-foundation/project --expires-at 2099-01-01T00:00:00Z < token.txt
+
+gh-manager secret audit --org link-foundation --json
+gh-manager secret audit --org link-foundation --repo gh-manager --json
+gh-manager secret delete MAVEN_TOKEN --repo link-foundation/project --dry-run
+```
+
+Use `--visibility all|private|selected` for organization writes; `selected` requires `--repos a,b`. `--org` and `--repo` together filter organization metadata and audit; writes accept one scope. `--env` requires `--repo`. All writes support `--dry-run`, which does not read stdin or invoke acquisition, validation or revocation callbacks. Set/delete dry runs make no requests; ensure/cleanup dry runs read metadata to print the plan. Deletion asks for confirmation; `--yes` is available for automation.
+
+`--validator ./registry.mjs` loads a local ES module supplied by the registry manager. It can export:
+
+- `validate({ name, scope, metadata, expiresAt, value })` returning `{ valid: true|false, expiresAt? }`. For an existing secret, GitHub cannot return its value: use registry state or an authenticated workflow probe. For a replacement, `value` is available only in memory. Exceptions and unknown validation fail without rotating.
+- `acquire({ name, scope, metadata, reason })` returning a string or `{ value, expiresAt? }`. Called only when rotation is needed; the default CLI acquisition reads stdin.
+- `revokePrevious({ name, scope, metadata })`, retaining any registry-side token identifier in the caller's closure. Called after GitHub confirms the new secret and expiry variable.
+- `verifyTrustedPublishing({ registry, scope, secrets })` returning `true` only after checking successful OIDC publishing. For an organization secret, verify every repository that can use it.
+
+Expiry comes from the registry. It is stored as a nonsecret `NAME_EXPIRES_AT` Actions variable at the same scope and visibility, with the same selected repository grants. A replacement without expiry removes old expiry metadata. `--rotate-before <seconds>` changes the seven-day window. An existing secret with neither expiry nor a validator has unknown validity and fails explicitly. A future recorded expiry can establish that rotation is not due; registry rejection can still force rotation when a validator is supplied.
+
+GitHub accepting the ciphertext and re-reading metadata confirms storage and access. It cannot prove the plaintext value or a registry login. The registry validator checks the candidate before storage; an integration can then run a workflow probe. Secret and expiry writes are separate GitHub requests: a metadata failure returns an error and never revokes the old registry token, but the new secret may already be stored.
+
+Publishing policy is trusted publishing first: npm, PyPI, crates.io, RubyGems, NuGet and JSR credentials are never stored. crates.io's first-publish credential belongs in memory and must be revoked by the registry manager. Docker Hub, Maven Central, VS Code Marketplace, Open VSX and Chrome Web Store tokens can be stored and rotated. GHCR uses the workflow `GITHUB_TOKEN` with `packages: write`.
+
+```bash
+# This prints the cleanup plan. Execution requires the verification callback.
+gh-manager secret cleanup --repo link-foundation/project --registry npm --dry-run
+gh-manager secret cleanup --repo link-foundation/project --registry npm --validator ./registry.mjs --yes
+```
+
+Audit reads `.github/workflows/*.yml` and `*.yaml` from the default branch, parses YAML to ignore comments, and reports `secrets.NAME` and literal bracket references with workflow locations and publishing recommendations. Organization audit enumerates repositories. Unreadable workflows, dynamic indexing, `secrets: inherit`, and a repository-filtered organization audit make the inventory incomplete; unmatched secrets are reported as _possibly unused_, never deleted. References in composite actions, other branches or external tooling require separate review.
+
+A `401` or `403` explains the required permissions and links the browser settings page. Organization access needs org admin access with classic `admin:org` (and `repo` for private repositories), or fine-grained Organization secrets permissions. Run `gh auth refresh -s admin:org` for a GitHub CLI login; injected tokens must be replaced with one having the correct permissions. Repository secrets need repository Secrets permissions; environment secrets need Environments permissions. Companion variables also require Variables permissions. Browser settings guidance lets a signed-in maintainer complete an operation when the API token lacks access.
+
+For release PR automation, prefer a GitHub App installation token over `RELEASE_PR_TOKEN`:
+
+```bash
+# Review registration URL, minimal permissions, installation and workflow snippet.
+gh-manager secret setup-app --org link-foundation --dry-run
+# After registering/installing the App, store its ID and private key securely.
+gh-manager secret setup-app --org link-foundation --app-id 123 --repos gh-manager < app-key.pem
+```
+
+The plan uses `actions/create-github-app-token` and `APP_ID` / `APP_PRIVATE_KEY`. Retain a PAT only as a fallback when an App cannot be installed. App creation and installation occur in GitHub settings; the command stores and verifies supplied credentials.
+
+The package's release jobs use npm OIDC exclusively. For a package absent from npm, bootstrap and attach its trusted publisher with browser sign-in:
+
+```bash
+package-registry-manager setup --registry npm --package @link-foundation/gh-manager --execute
+```
+
 ### config
 
 ```bash
@@ -404,7 +472,7 @@ bun test --timeout 30000
 
 # Or with other runtimes:
 npm test
-deno test --allow-read
+deno test --allow-read --allow-write --allow-env
 
 # Lint code
 bun run lint
@@ -412,7 +480,7 @@ bun run lint
 # Format code
 bun run format
 
-# Check all (lint + format + duplication)
+# Check all (lint + format + zero new duplication relative to origin/main)
 bun run check
 
 # Try the pure parts without a browser
@@ -429,6 +497,8 @@ npm install --prefix examples/universal-app
 npm run example:web:build
 npm run example:desktop:package
 ```
+
+The duplication check compares code with `origin/main` and rejects new clones of at least 50 tokens. Fetch `origin/main` before running it. Existing duplication is reported without blocking changes; an empty scan fails.
 
 ## Project Structure
 
@@ -518,14 +588,7 @@ The release workflow uses [Changesets](https://github.com/changesets/changesets)
 5. **Optional Docker Hub publishing**: When configured, waits for the exact npm version and tags the Docker image with that version
 6. **GitHub releases**: Auto-created with formatted release notes
 
-> **First release of a brand-new package**: OIDC trusted publishing cannot
-> create a package that does not exist yet (the first publish fails with
-> `E404`, because a trusted publisher can only be configured for an existing
-> package). To bootstrap, add a repository secret named `NPM_TOKEN` (a
-> granular/automation token with publish access). The release workflow passes
-> it as `NODE_AUTH_TOKEN` automatically. Once the package exists and OIDC
-> trusted publishing is configured on npmjs.com, the token becomes optional and
-> can be removed.
+> **First publish:** Use `package-registry-manager setup --registry npm --package @link-foundation/gh-manager --execute` to sign in through the browser, publish the first version and attach trusted publishing. Release jobs use OIDC and require no stored npm token.
 
 #### Manual Releases
 
