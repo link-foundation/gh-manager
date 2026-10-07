@@ -23,13 +23,30 @@ export function secretName(name) {
 }
 
 function validEnvironment(value) {
-  return typeof value === 'string' && value.length > 0;
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value !== '.' &&
+    value !== '..'
+  );
+}
+
+function validPathPart(part) {
+  return (
+    typeof part === 'string' &&
+    /^[A-Za-z0-9._-]+$/.test(part) &&
+    part !== '.' &&
+    part !== '..'
+  );
 }
 
 function scopePaths(scope) {
-  const valid = (part) =>
-    typeof part === 'string' && /^[A-Za-z0-9._-]+$/.test(part);
-  if (scope?.org && !scope.repo && !scope.environment && valid(scope.org)) {
+  if (
+    scope?.org &&
+    !scope.repo &&
+    scope.environment === undefined &&
+    validPathPart(scope.org)
+  ) {
     const org = encodeURIComponent(scope.org);
     return {
       base: `/orgs/${org}/actions`,
@@ -39,8 +56,8 @@ function scopePaths(scope) {
   if (
     scope?.repo &&
     !scope.org &&
-    valid(scope.repo.owner) &&
-    valid(scope.repo.name)
+    validPathPart(scope.repo.owner) &&
+    validPathPart(scope.repo.name)
   ) {
     const base = repoPath(scope.repo);
     if (
@@ -48,7 +65,7 @@ function scopePaths(scope) {
       !validEnvironment(scope.environment)
     ) {
       throw new CliError(
-        'An environment name must be nonempty.',
+        'An environment name must be nonempty and cannot be a dot path segment.',
         EXIT_CODES.USAGE
       );
     }
@@ -156,7 +173,7 @@ class SecretApi {
     if (
       parts.length > 2 ||
       owner?.toLowerCase() !== this.scope.org?.toLowerCase() ||
-      !/^[A-Za-z0-9._-]+$/.test(name ?? '')
+      !validPathPart(name)
     ) {
       throw new CliError(
         'Selected repositories must belong to the secret organization.',

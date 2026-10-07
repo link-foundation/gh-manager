@@ -8,7 +8,7 @@ import { githubAppPlan } from '../secrets/policy.js';
 
 function target(context, { filter = false } = {}) {
   const { org, repo, environment } = context.flags;
-  if (environment && !repo) {
+  if (environment !== undefined && !repo) {
     throw new CliError('--env requires --repo.', EXIT_CODES.USAGE);
   }
   const parsed = repo
@@ -24,7 +24,7 @@ function target(context, { filter = false } = {}) {
       EXIT_CODES.USAGE
     );
   }
-  if (environment && org) {
+  if (environment !== undefined && org) {
     throw new CliError(
       'Environment secrets require --repo and --env without --org.',
       EXIT_CODES.USAGE
@@ -33,7 +33,7 @@ function target(context, { filter = false } = {}) {
   const scope = org
     ? { org }
     : parsed
-      ? { repo: parsed, ...(environment ? { environment } : {}) }
+      ? { repo: parsed, ...(environment !== undefined ? { environment } : {}) }
       : null;
   const manager = createSecretManager({
     rest: context.rest,

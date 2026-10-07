@@ -25,6 +25,20 @@ async function failure(action) {
 }
 
 describe('Actions secrets API', () => {
+  it('rejects ambiguous scopes and URL-normalized path segments before making requests', async () => {
+    const { rest, calls } = await secretsApi();
+    for (const scope of [
+      { org: '..' },
+      { org: 'acme', repo: { owner: 'acme', name: 'one' } },
+      { repo: { owner: 'acme', name: '.' } },
+      { repo: { owner: 'acme', name: 'one' }, environment: '..' },
+      { repo: { owner: 'acme', name: 'one' }, environment: '' },
+    ]) {
+      const error = await failure(() => createSecretManager({ rest, scope }));
+      expect(error.exitCode).toBe(2);
+    }
+    expect(calls.length).toBe(0);
+  });
   for (const [label, scope, base] of [
     ['organization', org, '/orgs/acme/actions'],
     [
