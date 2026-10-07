@@ -559,18 +559,17 @@ describe('manual release quality gates', () => {
   }
 });
 
-describe('npm publish token bootstrap', () => {
-  // The first publish of a brand-new package cannot use OIDC trusted publishing
-  // (npm returns E404 because a trusted publisher can only be configured for an
-  // existing package). Every Publish-to-npm step must therefore expose an
-  // optional NODE_AUTH_TOKEN fallback sourced from secrets.NPM_TOKEN.
+describe('npm OIDC publishing', () => {
   for (const jobName of ['release', 'instant-release']) {
-    it(`passes secrets.NPM_TOKEN as NODE_AUTH_TOKEN on the ${jobName} publish step`, () => {
-      const workflow = readWorkflow('.github/workflows/release.yml');
-      const job = getJobBlock(workflow, jobName);
-
+    it(`publishes without stored npm credentials in ${jobName}`, () => {
+      const job = getJobBlock(
+        readWorkflow('.github/workflows/release.yml'),
+        jobName
+      );
       expect(job).toContain('node scripts/publish-to-npm.mjs');
-      expect(job).toContain('NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}');
+      expect(job).not.toContain('secrets.NPM_TOKEN');
+      expect(job).not.toContain('NODE_AUTH_TOKEN');
+      expect(job).toContain('id-token: write');
     });
   }
 });
@@ -598,7 +597,9 @@ describe('install-from-package smoke test', () => {
       const job = getJobBlock(workflow, jobName);
 
       expectOrdered(job, [
-        '- name: Publish to npm',
+        jobName === 'release'
+          ? '- name: Publish to npm'
+          : '- name: Publish the instant release with npm OIDC',
         '- name: Smoke-test published npm package',
         '- name: Create GitHub Release',
       ]);

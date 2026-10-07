@@ -14,6 +14,7 @@ import { createLogger } from '../logging.js';
 import { createPackageGateway } from '../packages/gateway.js';
 import { createSecurityGateway } from '../security/gateway.js';
 import { createConfirm } from './prompt.js';
+import { CliError, EXIT_CODES } from '../exit-codes.js';
 
 /**
  * Build the context for one command invocation.
@@ -75,6 +76,29 @@ export function createRunContext({
     rest,
     token,
     getSession,
+    readSecret:
+      deps.readSecret ??
+      (async () => {
+        if (process.stdin.isTTY) {
+          throw new CliError(
+            'Pipe the secret value through stdin.',
+            EXIT_CODES.USAGE
+          );
+        }
+        const chunks = [];
+        let bytes = 0;
+        for await (const chunk of process.stdin) {
+          bytes += Buffer.byteLength(chunk);
+          if (bytes > 48 * 1024 + 2) {
+            throw new CliError(
+              'Secret stdin exceeds 48 KiB.',
+              EXIT_CODES.USAGE
+            );
+          }
+          chunks.push(Buffer.from(chunk));
+        }
+        return Buffer.concat(chunks).toString('utf8');
+      }),
 
     confirm: deps.confirm ?? createConfirm({ assumeYes: Boolean(flags.yes) }),
 

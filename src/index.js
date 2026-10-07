@@ -47,3 +47,11 @@ export {
 } from './permissions/policy.js';
 export { openBrowserSession, withBrowserSession } from './browser/session.js';
 export { ROLES, VISIBILITIES } from './browser/selectors.js';
+
+export { createSecretManager } from './secrets/manager.js';
+export { auditWorkflows } from './secrets/audit.js';
+export {
+  TRUSTED_PUBLISHING_SECRETS,
+  publishingPolicy,
+  githubAppPlan,
+} from './secrets/policy.js';

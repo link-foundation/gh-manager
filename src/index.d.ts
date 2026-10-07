@@ -445,3 +445,144 @@ export declare const ROLES: readonly Role[];
 
 /** Package visibilities gh-manager can set. */
 export declare const VISIBILITIES: readonly Visibility[];
+
+/** Actions secret scopes are explicit; organization filtering is a list option. */
+export type SecretScope =
+  | { org: string; repo?: never; environment?: never }
+  | { org?: never; repo: Repository; environment?: string };
+
+export interface SecretMetadata {
+  name: string;
+  created_at?: string;
+  updated_at?: string;
+  visibility?: 'all' | 'private' | 'selected';
+  selected_repositories?: { id: number; name: string; full_name: string }[];
+}
+
+export interface SecretOptions {
+  visibility?: 'all' | 'private' | 'selected';
+  repos?: string[];
+  registry?: string;
+  expiresAt?: string | null;
+  dryRun?: boolean;
+}
+
+export interface RegistrySecretContext {
+  name: string;
+  scope: SecretScope;
+  /** Existing GitHub values are unreadable. Validate through registry/workflow state. */
+  metadata?: SecretMetadata | null;
+  expiresAt?: string | null;
+  /** Present only for a new candidate; never returned in results. */
+  value?: string;
+  reason?: string;
+}
+
+export interface SecretEnsureOptions extends SecretOptions {
+  /** Default: seven days. */
+  rotateBeforeMs?: number;
+  validate?: (
+    context: RegistrySecretContext
+  ) =>
+    | { valid: boolean; expiresAt?: string }
+    | Promise<{ valid: boolean; expiresAt?: string }>;
+  acquire?: (
+    context: RegistrySecretContext
+  ) =>
+    | string
+    | { value: string; expiresAt?: string }
+    | Promise<string | { value: string; expiresAt?: string }>;
+  /** Runs only after successful storage and metadata verification. */
+  revokePrevious?: (
+    context: RegistrySecretContext
+  ) => unknown | Promise<unknown>;
+}
+
+export interface SecretResult {
+  name: string;
+  changed?: boolean;
+  /** GitHub accepted the ciphertext; metadata/access were re-read. Not plaintext validation. */
+  verified?: boolean;
+  verification?: string;
+  reason?: string;
+  expiresAt?: string | null;
+  dryRun?: boolean;
+  operation?: string;
+  scope?: SecretScope;
+  visibility?: 'all' | 'private' | 'selected';
+  repos?: string[];
+}
+
+export interface SecretManager {
+  list(options?: { repo?: string }): Promise<SecretMetadata[]>;
+  getMetadata(name: string): Promise<SecretMetadata | null>;
+  set(
+    name: string,
+    value: string | undefined,
+    options?: SecretOptions
+  ): Promise<SecretResult>;
+  ensure(name: string, options?: SecretEnsureOptions): Promise<SecretResult>;
+  delete(name: string, options?: { dryRun?: boolean }): Promise<SecretResult>;
+  cleanup(
+    registry: string,
+    options?: {
+      dryRun?: boolean;
+      /** For org secrets, verify OIDC in every affected repository before returning true. */
+      verifyTrustedPublishing?: (context: {
+        registry: string;
+        scope: SecretScope;
+        secrets: SecretMetadata[];
+      }) => boolean | Promise<boolean>;
+    }
+  ): Promise<{
+    registry: string;
+    deleted?: string[];
+    names?: string[];
+    dryRun?: boolean;
+    verified?: boolean;
+    requires?: string;
+  }>;
+}
+
+export declare function createSecretManager(options: {
+  rest: RestClient;
+  scope: SecretScope;
+  log?: { debug: (message: string) => void };
+  verificationTimeout?: number;
+  now?: () => number;
+}): SecretManager;
+
+export interface SecretAuditReference {
+  repository: string;
+  workflow: string;
+  name: string;
+  line: number;
+  recommendation: string;
+}
+export interface SecretAudit {
+  references: SecretAuditReference[];
+  dynamicReferences: { repository: string; workflow: string }[];
+  unreadable: { repository: string; workflow: string }[];
+  unused: string[];
+  possiblyUnused: string[];
+  complete: boolean;
+}
+export declare function auditWorkflows(options: {
+  rest: RestClient;
+  repos: Repository[];
+  secrets?: SecretMetadata[];
+  inventoryComplete?: boolean;
+}): Promise<SecretAudit>;
+export declare const TRUSTED_PUBLISHING_SECRETS: Record<string, string[]>;
+export declare function publishingPolicy(
+  name: string,
+  registry?: string
+): string;
+export declare function githubAppPlan(org: string): {
+  registration: string;
+  permissions: { contents: string; pull_requests: string };
+  installation: string;
+  credentials: string[];
+  workflow: string;
+  fallback: string;
+};
