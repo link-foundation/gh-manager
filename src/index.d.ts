@@ -119,6 +119,8 @@ export interface CommandDomain {
   verbs: Record<string, CommandVerb>;
   /** Words this domain forwards to another domain, keyed by word. */
   nested?: Record<string, string>;
+  /** A command without an explicit verb dispatches to this verb. */
+  defaultVerb?: string;
 }
 
 /** Result of setting a package visibility. */
@@ -586,3 +588,78 @@ export declare function githubAppPlan(org: string): {
   workflow: string;
   fallback: string;
 };
+
+/** Protection always keeps deletion and non-fast-forward rules enabled. */
+export interface ProtectionRule {
+  type: string;
+  parameters?: Record<string, unknown>;
+}
+
+export type ProtectionTarget =
+  | { org: string; user?: never; repo?: never }
+  | { user: string; org?: never; repo?: never }
+  | { repo: Repository; org?: never; user?: never };
+
+export interface ProtectionEntry {
+  repository?: string;
+  repo?: Repository;
+  fork?: boolean;
+  action: 'create' | 'update' | 'already protected' | 'skipped' | 'failed';
+  route?: 'ruleset' | 'classic' | 'organization ruleset';
+  reason?: string;
+  limitation?: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  branches?: Record<string, unknown>[];
+  id?: number;
+  changed?: boolean;
+  verified?: boolean;
+  verifiedBranch?: string;
+  branchVerification?: string;
+  exitCode?: number;
+}
+
+export interface ProtectionPlan {
+  target: ProtectionTarget;
+  policy: { name: string; rules: ProtectionRule[] };
+  repositories: ProtectionEntry[];
+  organization?: ProtectionEntry;
+  fallbackReason?: string;
+  dryRun?: boolean;
+}
+
+export interface ProtectionOptions {
+  name?: string;
+  /** Extra rules are additive; the defaults cannot be removed. */
+  rules?: ProtectionRule[];
+  document?: {
+    name?: string;
+    rules: ProtectionRule[];
+    target?: 'branch';
+    enforcement?: 'active';
+  };
+  dryRun?: boolean;
+  /** Required for bulk changes and updates; called again for a revised fallback plan. */
+  confirm?: (plan: ProtectionPlan) => boolean | Promise<boolean>;
+  /** Called before consent is requested, including fallback plans. */
+  onPlan?: (plan: ProtectionPlan) => void | Promise<void>;
+}
+
+export interface ProtectionManager {
+  plan(
+    target: ProtectionTarget,
+    options?: ProtectionOptions
+  ): Promise<ProtectionPlan>;
+  protect(
+    target: ProtectionTarget,
+    options?: ProtectionOptions
+  ): Promise<ProtectionPlan>;
+}
+
+export declare function createProtectionManager(options: {
+  rest: RestClient;
+  log?: { debug: (message: string) => void };
+  verificationTimeout?: number;
+}): ProtectionManager;
+
+export declare const DEFAULT_PROTECTION_RULES: readonly Readonly<ProtectionRule>[];

@@ -49,6 +49,8 @@ export { openBrowserSession, withBrowserSession } from './browser/session.js';
 export { ROLES, VISIBILITIES } from './browser/selectors.js';
 
 export { createSecretManager } from './secrets/manager.js';
+export { createProtectionManager } from './protection/manager.js';
+export { DEFAULT_PROTECTION_RULES } from './protection/policy.js';
 export { auditWorkflows } from './secrets/audit.js';
 export {
   TRUSTED_PUBLISHING_SECRETS,
