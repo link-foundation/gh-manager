@@ -164,6 +164,12 @@ jobs:
         with:
           node-version: '24.x'
 
+      # Changesets 3 selects deno fmt when a Deno manifest is present.
+      - name: Setup Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
       - name: Install dependencies
         run: npm install
 
@@ -185,6 +191,21 @@ jobs:
           # This validates that exactly ONE changeset was ADDED by this PR
           # Pre-existing changesets from other merged PRs are ignored
           node scripts/validate-changeset.mjs
+
+      # Exercise the actual release command in this disposable PR checkout.
+      # Package/changelog/lockfile changes are never committed or published.
+      - name: Verify release versioning
+        timeout-minutes: 5
+        run: |
+          # Automated version PRs may have already consumed every changeset.
+          node --input-type=module <<'NODE'
+          import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+          if (!readdirSync('.changeset').some((file) => file.endsWith('.md') && file !== 'README.md')) {
+            const { name } = JSON.parse(readFileSync('package.json', 'utf8'));
+            writeFileSync('.changeset/ci-version-smoke.md', `---\n${JSON.stringify(name)}: patch\n---\n\nVerify release versioning.\n`, { flag: 'wx' });
+          }
+          NODE
+          npm run changeset:version
 
   # === LINT AND FORMAT CHECK ===
   # Lint runs independently of changeset-check - it's a fast check that should always run
@@ -493,6 +514,11 @@ jobs:
       - name: Update npm for OIDC trusted publishing
         run: node scripts/setup-npm.mjs
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
       - name: Check for changesets
         id: check_changesets
         run: node scripts/check-changesets.mjs
@@ -591,6 +617,11 @@ jobs:
 
       - name: Update npm for OIDC trusted publishing
         run: node scripts/setup-npm.mjs
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
 
       - name: Version packages and commit to main
         id: version
