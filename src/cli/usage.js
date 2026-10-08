@@ -26,12 +26,14 @@ export function formatUsage(domains) {
     'gh-manager - manage GitHub through a real browser session, where the API cannot',
     '',
     'Usage: gh-manager <domain> <verb> [targets...] [options]',
+    '       gh-manager protect <owner>/<repo> | --org <name> | --user <login>',
     '',
     'Domains:',
     ...domains.map((domain) => `  ${pad(domain.name)}  ${domain.summary}`),
     '',
     'Common options:',
-    '  --org <name>          Organization that owns the packages',
+    '  --org <name>          Organization that owns the resources',
+    '  --user <login>        Account whose repositories protect selects',
     '  --account <login>     Personal account that owns the packages',
     '  --package-type <type> Package ecosystem (default: container)',
     '  --pattern <glob>      Select packages by name pattern',
@@ -42,7 +44,7 @@ export function formatUsage(domains) {
     '  --yes, -y             Answer confirmation prompts in advance',
     '  --headless            Run the browser without a window',
     '  --app-dir <path>      Application directory (default: ~/.gh-manager)',
-    '  --token <token>       API token for reads and verification',
+    '  --token <token>       API token for reads, supported writes and verification',
     '  --json                Machine readable output where available',
     '  --verbose             Print what the tool is doing',
     '  --help, -h            Show help for a domain',
@@ -89,8 +91,14 @@ export function formatDomainUsage(domain) {
   return [
     `gh-manager ${domain.name} - ${domain.summary}`,
     '',
-    'Verbs:',
-    ...names.map((name) => `  ${pad(name)}  ${domain.verbs[name].summary}`),
+    ...(domain.defaultVerb
+      ? []
+      : [
+          'Verbs:',
+          ...names.map(
+            (name) => `  ${pad(name)}  ${domain.verbs[name].summary}`
+          ),
+        ]),
     ...formatNested(domain),
     '',
     ...domain.usage,

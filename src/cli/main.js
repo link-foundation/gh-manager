@@ -121,7 +121,7 @@ async function handleHelp({ positionals, flags, domains, stdout }) {
 
   const { domain, rest } = resolveCommand(domains, positionals);
 
-  if (rest.length === 0 || flags.help) {
+  if ((!domain.defaultVerb && rest.length === 0) || flags.help) {
     stdout(formatDomainUsage(domain));
     return flags.help ? EXIT_CODES.SUCCESS : EXIT_CODES.USAGE;
   }
@@ -170,7 +170,9 @@ export async function runCli(
     }
 
     const { domain, rest } = resolveCommand(domains, parsed.positionals);
-    const [verbName, ...targets] = rest;
+    const [verbName, ...targets] = domain.defaultVerb
+      ? [domain.defaultVerb, ...rest]
+      : rest;
     const verb = requireVerb(domain, verbName);
     const context = createRunContext({
       targets,

@@ -43,6 +43,8 @@ export const FLAG_SPECS = {
   user: { key: 'users', type: 'string', multiple: true },
   role: { key: 'role', type: 'string' },
   from: { key: 'from', type: 'string' },
+  name: { key: 'name', type: 'string' },
+  rule: { key: 'rules', type: 'string', multiple: true },
   timeout: { key: 'timeout', type: 'number' },
   json: { key: 'json', type: 'boolean' },
   verbose: { key: 'verbose', type: 'boolean' },

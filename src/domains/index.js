@@ -13,6 +13,7 @@ import { packageDomain } from './package.js';
 import { permissionsDomain } from './permissions.js';
 import { securityDomain } from './security.js';
 import { secretDomain } from './secret.js';
+import { protectDomain } from './protect.js';
 
 /** Domains that ship with gh-manager. */
 export const DOMAINS = [
@@ -21,6 +22,7 @@ export const DOMAINS = [
   permissionsDomain,
   securityDomain,
   secretDomain,
+  protectDomain,
   configDomain,
 ];
 
@@ -41,4 +43,5 @@ export {
   permissionsDomain,
   securityDomain,
   secretDomain,
+  protectDomain,
 };

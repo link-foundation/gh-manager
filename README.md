@@ -8,6 +8,7 @@ settings, the dependency graph among them.
 GitHub has no endpoint for any of those. The only place they exist is the web
 UI, so gh-manager drives a real browser for the writes, and uses the API for the
 reads and for verifying that a write actually landed.
+Actions secrets and branch protections use supported API writes.
 
 ```bash
 npm i -g @link-foundation/gh-manager
@@ -18,6 +19,7 @@ gh-manager package public box box-dind --org link-foundation
 ## Features
 
 - Organization, repository and environment Actions secrets: encrypted storage, expiry-driven rotation and publishing-policy audits.
+- Protect every branch of an organization, user or repository against deletion and force pushes, with safe API fallbacks.
 
 - **One login, reused**: a dedicated Chrome profile in `~/.gh-manager/`
   survives SSO and 2FA, which a personal access token cannot carry
@@ -73,15 +75,16 @@ gh-manager security dependency-graph link-foundation/gh-manager --enable
 
 ## How it works
 
-| Operation                    | Read          | Write         | Verify          |
-| ---------------------------- | ------------- | ------------- | --------------- |
-| List packages                | API → browser | —             | —               |
-| Change visibility            | API           | Browser       | API, then page  |
-| Delete a package             | API           | Browser       | API, then page  |
-| List or change permissions   | Browser       | Browser       | Page re-read    |
-| Read code security settings  | API → browser | —             | —               |
-| Set the dependency graph     | SBOM probe    | Browser       | SBOM, then page |
-| Set another security setting | API           | API → browser | API, then page  |
+| Operation                    | Read          | Write         | Verify                             |
+| ---------------------------- | ------------- | ------------- | ---------------------------------- |
+| List packages                | API → browser | —             | —                                  |
+| Change visibility            | API           | Browser       | API, then page                     |
+| Delete a package             | API           | Browser       | API, then page                     |
+| List or change permissions   | Browser       | Browser       | Page re-read                       |
+| Read code security settings  | API → browser | —             | —                                  |
+| Set the dependency graph     | SBOM probe    | Browser       | SBOM, then page                    |
+| Set another security setting | API           | API → browser | API, then page                     |
+| Protect branches             | API           | API           | Ruleset and effective branch rules |
 
 `GET /orgs/{org}/packages?package_type=container` answers with an empty array
 for a token without the package scopes. gh-manager treats an empty listing as
@@ -108,6 +111,101 @@ says which of the two confirmed the change.
 The grammar is `gh-manager <domain> <verb> [targets...] [flags]`. Run
 `gh-manager --help` for the domain list, or `gh-manager <domain> --help` for a
 domain.
+
+### protect
+
+```bash
+gh-manager protect --org link-foundation
+gh-manager protect --user konard
+gh-manager protect link-foundation/gh-manager
+gh-manager protect --org link-foundation --dry-run
+gh-manager protect link-foundation/gh-manager --name guard --rule pull_request --yes
+gh-manager protect link-foundation/gh-manager --from rules.json
+```
+
+Creates an active branch ruleset named `protection`, covering `~ALL` branches
+with no exclusions or bypass actors. Its two default rules restrict deletions
+and block force pushes. Normal pushes, branch creation, pull requests, and
+release bots remain allowed. Stricter rules are additive and opt-in: repeat
+`--rule` for `pull_request` (one approval), `required_signatures`,
+`required_linear_history`, `creation` or `update`. Rules needing custom
+parameters use `--from` with a JSON file:
+
+```json
+{
+  "name": "protection",
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "required_status_checks": [{ "context": "build" }],
+        "strict_required_status_checks_policy": true
+      }
+    }
+  ]
+}
+```
+
+The default rules are always retained. JSON accepts `name`, `rules`, and
+optional `target: "branch"` and `enforcement: "active"`; coverage and bypass
+actors stay fixed to protect all branches. `--name` overrides the JSON name.
+
+For an organization, the command first tries one organization ruleset covering
+all current and future repositories. GitHub's actual API response determines
+availability; a permissions or plan denial is explained before falling back
+to repository rulesets. Organization rulesets require org admin access and
+`admin:org` for classic tokens (`gh auth refresh -s admin:org`). Repository
+rulesets require repository admin access or Administration write permission;
+private repositories require appropriate token access. The command uses an
+API token, resolved in the same way as other commands.
+
+For a user, it lists owned public repositories and, when the token belongs to
+that user, also enumerates owned private repositories through the authenticated
+API. To include private repositories, use that user's token. Archived
+repositories are skipped with a reason; forks are identified separately and
+protected when writable. Repository enumeration follows all pagination pages.
+
+An existing active ruleset covering all branches with the requested rules and
+no bypass actors reports `already protected`. A local ruleset with the selected
+name is updated only after showing its before/after diff and confirming. Extra
+rules, check requirements and review requirements are preserved. Conflicting
+parameters fail with guidance to choose a separate name. Inherited rulesets
+are never edited. A concurrent edit detected before writing stops that update.
+
+If repository rulesets are unavailable, the command plans classic protection
+for every current branch, preserving its checks, reviews and restrictions.
+Classic protection cannot cover future branches; rerun to include new ones.
+If classic protection is also unavailable, the repository is reported as a
+failure and the bulk run continues. Extra rules that cannot be represented
+safely by this fallback are reported without writing.
+
+Bulk changes and updates require confirmation, or `--yes` in noninteractive
+runs. The resolved list and actions appear before consent; a fallback plan is
+shown and confirmed separately. `--dry-run` only reads and prints the plan,
+including each repository's create, update, already protected or skipped
+status. A dry run cannot predict an error GitHub returns only on creation.
+`--json` returns the plan/results as one JSON document. Writes are verified by
+re-reading the ruleset and one branch's effective rules in each repository.
+An empty repository verifies the ruleset and reports that no branch is available
+to probe. Classic protection is re-read for every branch. `--timeout <seconds>`
+sets the verification window (default 15); failed verification exits `6`.
+
+Library consumers can use `createProtectionManager({ rest })` with
+`plan(target, options)` or `protect(target, options)`:
+
+```js
+const manager = createProtectionManager({ rest: createRestClient({ token }) });
+const plan = await manager.plan({ org: 'link-foundation' });
+const result = await manager.protect(
+  { repo: { owner: 'link-foundation', name: 'gh-manager' } },
+  { dryRun: true }
+);
+```
+
+For bulk writes or updates, pass a `confirm(plan)` callback that returns consent
+and an optional `onPlan(plan)` callback to display the reviewed plan. Inspect
+`repositories` for per-repository failures and their `exitCode`, as one failure
+does not cancel the rest. See [the read-only organization preview](examples/protect-repositories.js).
 
 ### auth
 
