@@ -42,12 +42,17 @@ try {
 
   console.log('Running changeset version...');
 
+  let result;
   // IMPORTANT: cd is a virtual command that calls process.chdir(), so we restore after
   if (needsCd({ jsRoot })) {
-    await $`cd ${jsRoot} && npx changeset version`;
+    result = await $`cd ${jsRoot} && npx changeset version`.run();
     process.chdir(originalCwd);
   } else {
-    await $`npx changeset version`;
+    result = await $`npx changeset version`.run();
+  }
+  // command-stream resolves on nonzero exits; never accept a partial bump.
+  if (result.code !== 0) {
+    throw new Error(`changeset version failed (exit ${result.code})`);
   }
 
   console.log('\nSynchronizing package-lock.json...');
@@ -56,10 +61,14 @@ try {
   // --legacy-peer-deps keeps a peer-dependency conflict from failing the
   // lockfile refresh with npm ERESOLVE.
   if (needsCd({ jsRoot })) {
-    await $`cd ${jsRoot} && npm install --package-lock-only --legacy-peer-deps`;
+    result =
+      await $`cd ${jsRoot} && npm install --package-lock-only --legacy-peer-deps`.run();
     process.chdir(originalCwd);
   } else {
-    await $`npm install --package-lock-only --legacy-peer-deps`;
+    result = await $`npm install --package-lock-only --legacy-peer-deps`.run();
+  }
+  if (result.code !== 0) {
+    throw new Error(`Lockfile synchronization failed (exit ${result.code})`);
   }
 
   console.log('\n✅ Version bump complete with synchronized package-lock.json');

@@ -223,26 +223,34 @@ async function main() {
     const oldVersion = await getVersion();
     console.log(`Current version: ${oldVersion}`);
 
+    let versionResult;
     if (mode === 'instant') {
       console.log('Running instant version bump...');
       // Run instant version bump script
       // Pass --js-root to ensure consistent path handling
       // Rely on command-stream's auto-quoting for proper argument handling
       if (description) {
-        await $`node scripts/instant-version-bump.mjs --bump-type ${bumpType} --description ${description} --js-root ${jsRoot}`;
+        versionResult =
+          await $`node scripts/instant-version-bump.mjs --bump-type ${bumpType} --description ${description} --js-root ${jsRoot}`.run();
       } else {
-        await $`node scripts/instant-version-bump.mjs --bump-type ${bumpType} --js-root ${jsRoot}`;
+        versionResult =
+          await $`node scripts/instant-version-bump.mjs --bump-type ${bumpType} --js-root ${jsRoot}`.run();
       }
     } else {
       console.log('Running changeset version...');
       // Run changeset version to bump versions and update CHANGELOG
       // IMPORTANT: cd is a virtual command that calls process.chdir(), so we restore after
       if (needsCd({ jsRoot })) {
-        await $`cd ${jsRoot} && npm run changeset:version`;
+        versionResult =
+          await $`cd ${jsRoot} && npm run changeset:version`.run();
         process.chdir(originalCwd);
       } else {
-        await $`npm run changeset:version`;
+        versionResult = await $`npm run changeset:version`.run();
       }
+    }
+
+    if (versionResult.code !== 0) {
+      throw new Error(`Versioning failed (exit ${versionResult.code})`);
     }
 
     // Get new version after bump

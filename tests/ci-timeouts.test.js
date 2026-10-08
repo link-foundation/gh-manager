@@ -164,6 +164,7 @@ describe('CI execution budgets', () => {
       .filter((job) => job.budgets.length > 0);
 
     expect(jobsWithBudgets.map((job) => job.jobName).sort()).toEqual([
+      'changeset-check',
       'docker-build',
       'docker-publish-build',
       'release',
