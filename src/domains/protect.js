@@ -113,10 +113,14 @@ async function protect(context) {
     document,
     dryRun: Boolean(context.flags.dryRun),
     onPlan: (plan) => showPlan(context, plan),
-    confirm: (plan) =>
-      context.confirm(
-        `Proceed with protection changes for ${plan.repositories.length} repository(ies)?`
-      ),
+    confirm: (plan) => {
+      const question = `Proceed with protection changes for ${plan.repositories.length} repository(ies)?`;
+      return context.confirm(
+        context.flags.json
+          ? `${JSON.stringify({ organization: plan.organization, repositories: plan.repositories }, null, 2)}\n${question}`
+          : question
+      );
+    },
   });
   if (context.flags.json) {
     printJson(context, result);

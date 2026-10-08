@@ -159,6 +159,22 @@ describe('protect plans, confirmation and custom policies', () => {
     expect(writes(api).length).toBe(0);
   });
 
+  it('includes the repository list and update diff in JSON-mode confirmation', async () => {
+    const api = protectionApi({
+      rulesets: {
+        '/repos/acme/one/rulesets': [
+          protectionRuleset({ rules: [{ type: 'deletion' }] }),
+        ],
+      },
+    });
+    const result = await command(['--user', 'acme', '--json'], api);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.output).repositories[0].verified).toBe(true);
+    expect(result.asked[0]).toContain('acme/one');
+    expect(result.asked[0]).toContain('before');
+    expect(result.asked[0]).toContain('after');
+  });
+
   it('reports each repository in dry run with no writes or confirmation', async () => {
     const api = protectionApi({
       repositories: [repository('one'), repository('old', { archived: true })],
