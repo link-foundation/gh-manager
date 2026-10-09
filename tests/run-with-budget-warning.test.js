@@ -74,7 +74,9 @@ describe('run-with-budget-warning.sh', () => {
       return;
     }
 
-    const result = runBudget(['3', 'warned step', 'sleep', '2'], {
+    // Warns at 3 s (30% of 10 s) and finishes at 4 s: 6 s of headroom before
+    // the budget kills it, enough for a slow shared macOS runner.
+    const result = runBudget(['10', 'warned step', 'sleep', '4'], {
       BUDGET_WARN_PERCENT: '30',
     });
 

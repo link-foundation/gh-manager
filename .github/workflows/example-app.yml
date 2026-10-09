@@ -241,6 +241,10 @@ jobs:
       # The push helper opens and merges a pull request when a repository
       # ruleset declines the direct push to main (issue #143).
       pull-requests: write
+    # The container's default shell is sh; the steps below use bash syntax.
+    defaults:
+      run:
+        shell: bash
     env:
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     steps:
