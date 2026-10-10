@@ -58,7 +58,7 @@ describe('run-with-budget-warning.sh', () => {
       return;
     }
 
-    const result = runBudget(['2', 'slow suite', 'sleep', '60'], {
+    const result = runBudget(['5', 'slow suite', 'sleep', '20'], {
       BUDGET_GRACE_SECONDS: '2',
     });
 
@@ -66,7 +66,7 @@ describe('run-with-budget-warning.sh', () => {
     expect(result.output).toContain(
       '::error title=slow suite exceeded its execution budget::'
     );
-    expect(result.output).toContain('2s budget');
+    expect(result.output).toContain('5s budget');
   });
 
   it('warns while the overrun can still be acted on', () => {
@@ -74,7 +74,7 @@ describe('run-with-budget-warning.sh', () => {
       return;
     }
 
-    const result = runBudget(['3', 'warned step', 'sleep', '2'], {
+    const result = runBudget(['10', 'warned step', 'sleep', '4'], {
       BUDGET_WARN_PERCENT: '30',
     });
 
@@ -90,10 +90,10 @@ describe('run-with-budget-warning.sh', () => {
     }
 
     // A unique sleep duration doubles as a marker pgrep can match on.
-    const workerSeconds = 900000 + (process.pid % 1000);
+    const workerSeconds = 60 + (process.pid % 1000);
     const result = runBudget(
       [
-        '2',
+        '5',
         'suite with workers',
         'bash',
         '-c',
