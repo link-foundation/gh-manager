@@ -106,6 +106,16 @@ export async function secretsApi({
       if (method === 'GET') {
         return read(store, kind, name, sub, url);
       }
+      if (sub === 'repositories') {
+        const item = store.get(name);
+        item.selected_repository_ids = [
+          ...new Set([
+            ...(item.selected_repository_ids ?? []),
+            Number(relative[3]),
+          ]),
+        ];
+        return answer(204);
+      }
       if (method === 'DELETE') {
         if (!ignoreWrites) {
           store.delete(name);

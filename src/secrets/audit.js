@@ -1,7 +1,6 @@
 import { parseDocument, visit, isScalar } from 'yaml';
 import { repoPath } from '../github/rest.js';
 import { repoSlug } from '../github/repo.js';
-import { publishingPolicy } from './policy.js';
 
 /** Inspect YAML scalars so comments cannot keep an obsolete secret alive. */
 function inspectWorkflow(source, location, report) {
@@ -28,7 +27,10 @@ function inspectWorkflow(source, location, report) {
         ...location,
         name,
         line,
-        recommendation: publishingPolicy(name),
+        recommendation:
+          name === 'RELEASE_PR_TOKEN'
+            ? 'Prefer a GitHub App installation token.'
+            : 'Review caller policy and Actions health before changing this secret.',
       });
     }
     if (

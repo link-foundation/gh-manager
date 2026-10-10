@@ -8,6 +8,8 @@
  * endpoint does exist, because an API write is the more precise instrument.
  */
 
+import { URL } from 'node:url';
+
 const API_BASE_URL = 'https://api.github.com';
 const PER_PAGE = 100;
 
@@ -127,8 +129,8 @@ export function createRestClient({
    * @param {boolean} [options.allowNotFound] - Return null for a 404
    * @returns {Promise<any>} Parsed JSON body, or null for a tolerated 404
    */
-  async function request(apiPath, { allowNotFound = false } = {}) {
-    const response = await send(apiPath);
+  async function request(apiPath, { allowNotFound = false, ...options } = {}) {
+    const response = await send(apiPath, options);
 
     if (response.status === 404 && allowNotFound) {
       return null;
@@ -148,6 +150,42 @@ export function createRestClient({
     hasToken: Boolean(token),
     request,
     send,
+    async text(apiPath) {
+      const headers = {
+        accept: 'application/vnd.github+json',
+        'x-github-api-version': '2022-11-28',
+        'user-agent': 'gh-manager',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      };
+      let response = await fetchImpl(`${baseUrl}${apiPath}`, {
+        headers,
+        redirect: 'manual',
+      });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location');
+        const url = new URL(location, baseUrl);
+        if (
+          !location ||
+          url.protocol !== 'https:' ||
+          url.username ||
+          url.password
+        ) {
+          throw new GitHubApiError(
+            'GitHub returned an invalid log download redirect.',
+            { status: response.status, path: apiPath }
+          );
+        }
+        // Signed download URLs authorize themselves; never forward the API token.
+        response = await fetchImpl(url.href, { redirect: 'error' });
+      }
+      if (!response.ok) {
+        throw new GitHubApiError(`GitHub log download ${response.status}`, {
+          status: response.status,
+          path: apiPath,
+        });
+      }
+      return response.text();
+    },
 
     /**
      * List every package of a type for an owner, following pagination.

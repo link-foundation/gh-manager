@@ -5,6 +5,7 @@ import { parseRepoSpec } from '../github/repo.js';
 import { createSecretManager } from '../secrets/manager.js';
 import { auditWorkflows } from '../secrets/audit.js';
 import { githubAppPlan } from '../secrets/policy.js';
+import { createSecretHealth } from '../secrets/health.js';
 
 function target(context, { filter = false } = {}) {
   const { org, repo, environment } = context.flags;
@@ -55,8 +56,15 @@ function requireCount(context, count) {
 }
 
 function settings(context) {
-  const { visibility, repos, registry, expiresAt, rotateBefore } =
-    context.flags;
+  const {
+    visibility,
+    repos,
+    reason,
+    expiresAt,
+    rotateBefore,
+    failurePatterns,
+    broken,
+  } = context.flags;
   return {
     ...(visibility ? { visibility } : {}),
     ...(repos
@@ -67,7 +75,9 @@ function settings(context) {
             .filter(Boolean),
         }
       : {}),
-    registry,
+    reason,
+    failurePatterns,
+    ...(broken ? { health: { status: 'auth-failing' } } : {}),
     expiresAt,
     dryRun: Boolean(context.flags.dryRun),
     ...(rotateBefore !== undefined
@@ -101,7 +111,7 @@ async function validator(context) {
     );
   } catch {
     throw new CliError(
-      'Could not load the registry validator module.',
+      'Could not load the validator callback module.',
       EXIT_CODES.USAGE
     );
   }
@@ -141,7 +151,7 @@ async function set(context) {
     output(context, await manager.set(context.targets[0], undefined, options));
     return;
   }
-  // Check token policy/name/access before reading a value.
+  // Check name/access before reading a value.
   await manager.set(context.targets[0], undefined, {
     ...options,
     dryRun: true,
@@ -181,23 +191,90 @@ async function remove(context) {
 }
 
 async function cleanup(context) {
-  requireCount(context, 0);
+  if (!context.targets.length) {
+    throw new CliError(
+      'Supply explicit secret names for cleanup.',
+      EXIT_CODES.USAGE
+    );
+  }
   const { manager } = target(context);
   const callbacks = context.flags.dryRun ? {} : await validator(context);
   if (
     !context.flags.dryRun &&
     !(await context.confirm(
-      'Delete leftover publishing secrets after trusted publishing verification?'
+      'Delete the named secrets after caller verification?'
     ))
   ) {
     return EXIT_CODES.ABORTED;
   }
   output(
     context,
-    await manager.cleanup(context.flags.registry, {
+    await manager.cleanup(context.targets, {
       ...settings(context),
-      verifyTrustedPublishing: callbacks.verifyTrustedPublishing,
+      verify: callbacks.verify,
     })
+  );
+}
+
+function healthOptions(context) {
+  const { scope } = target(context);
+  if (scope.environment) {
+    throw new CliError(
+      'Health/test supports organization or repository scope.',
+      EXIT_CODES.USAGE
+    );
+  }
+  const inputs = {};
+  for (const input of context.flags.inputs ?? []) {
+    const equals = input.indexOf('=');
+    if (equals < 1) {
+      throw new CliError(
+        'Workflow inputs use --input name=value.',
+        EXIT_CODES.USAGE
+      );
+    }
+    inputs[input.slice(0, equals)] = input.slice(equals + 1);
+  }
+  return {
+    ...settings(context),
+    scope,
+    branch: context.flags.branch,
+    ...(context.flags.timeout !== undefined
+      ? { timeout: context.flags.timeout * 1000 }
+      : {}),
+    inputs,
+  };
+}
+
+async function health(context) {
+  requireCount(context, 1);
+  output(
+    context,
+    await createSecretHealth({ rest: context.rest, log: context.log }).health(
+      context.targets[0],
+      healthOptions(context)
+    )
+  );
+}
+
+async function test(context) {
+  requireCount(context, 1);
+  const options = healthOptions(context);
+  if (context.flags.dryRun) {
+    output(context, {
+      operation: 'secret-test',
+      name: context.targets[0],
+      scope: options.scope,
+      dryRun: true,
+    });
+    return;
+  }
+  output(
+    context,
+    await createSecretHealth({ rest: context.rest, log: context.log }).test(
+      context.targets[0],
+      options
+    )
   );
 }
 
@@ -269,16 +346,17 @@ async function setupApp(context) {
 
 export const secretDomain = {
   name: 'secret',
-  summary:
-    'Manage Actions secret metadata, encrypted values, expiry and publishing policy',
+  summary: 'Manage Actions secrets, organization fallback and workflow health',
   usage: [
     'gh-manager secret list|get-metadata [NAME] --org <org> [--repo <repo>]',
     'gh-manager secret set|ensure NAME --org <org> --visibility selected --repos a,b < token.txt',
     'gh-manager secret set|ensure NAME --repo owner/repo [--env production] < token.txt',
-    'gh-manager secret ensure NAME --org <org> --validator ./registry.mjs [--rotate-before seconds]',
+    'gh-manager secret ensure NAME --org <org> --validator ./validator.mjs [--rotate-before seconds]',
     'gh-manager secret delete NAME --repo owner/repo [--dry-run] [--yes]',
     'gh-manager secret audit --org <org> [--repo <repo>]',
-    'gh-manager secret cleanup --repo owner/repo --registry npm --validator ./registry.mjs [--dry-run] [--yes]',
+    'gh-manager secret cleanup NAME... --repo owner/repo --reason <text> --validator ./validator.mjs [--dry-run] [--yes]',
+    'gh-manager secret health NAME --org <org> | --repo owner/repo [--failure-pattern <regex>]...',
+    'gh-manager secret test NAME --org <org> | --repo owner/repo [--input name=value] [--timeout seconds]',
     'gh-manager secret setup-app --org <org> [--app-id ID --repos a,b < app-key.pem]',
     '',
     'Values are accepted only from stdin or library callbacks, never as arguments.',
@@ -290,6 +368,8 @@ export const secretDomain = {
       'get-metadata': getMetadata,
       set,
       ensure,
+      health,
+      test,
       delete: remove,
       cleanup,
       audit,

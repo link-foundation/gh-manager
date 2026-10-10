@@ -24,7 +24,7 @@ const rest = () =>
   });
 
 describe('workflow secret audit', () => {
-  it('locates static references, OIDC replacements and App alternatives without treating comments as use', async () => {
+  it('locates static references and App alternatives without treating comments as use', async () => {
     const report = await auditWorkflows({
       rest: rest(),
       repos: [repo],
@@ -40,7 +40,7 @@ describe('workflow secret audit', () => {
       'RELEASE_PR_TOKEN',
     ]);
     expect(report.references[0].line).toBe(6);
-    expect(report.references[0].recommendation).toContain('trusted publishing');
+    expect(report.references[0].recommendation).toContain('caller policy');
     expect(report.references[2].recommendation).toContain('GitHub App');
     expect(report.unused).toEqual([]);
     expect(report.possiblyUnused).toEqual(['UNUSED']);

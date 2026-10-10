@@ -1,6 +1,7 @@
 import { CliError, EXIT_CODES } from '../exit-codes.js';
 import { createSecretApi, secretName } from './api.js';
-import { TRUSTED_PUBLISHING_SECRETS, requireStoredToken } from './policy.js';
+import { selectedTargets } from '../github/discovery.js';
+import { createSecretHealth } from './health.js';
 
 function normalizedExpiry(value) {
   if (value === undefined || value === null) {
@@ -17,11 +18,13 @@ function normalizedExpiry(value) {
 }
 
 // Callback errors may include credentials. Do not retain their cause or stack.
-async function callRegistry(callback, input, label) {
+async function callCallback(callback, input, label) {
   try {
     return await callback(input);
   } catch {
-    throw new CliError(`Registry ${label} failed; token values were withheld.`);
+    throw new CliError(
+      `Secret ${label} callback failed; values were withheld.`
+    );
   }
 }
 
@@ -54,14 +57,27 @@ function preserveAccess(scope, metadata, settings) {
   const visibility = settings.visibility ?? metadata.visibility;
   const repos =
     visibility === 'selected'
-      ? (settings.repos ??
-        metadata.selected_repositories?.map((repo) => repo.full_name))
+      ? [
+          ...new Set([
+            ...(settings.repos ?? []),
+            ...(metadata.selected_repositories?.map((repo) => repo.full_name) ??
+              []),
+          ]),
+        ]
       : settings.repos;
   return { ...settings, visibility, repos };
 }
 
+function orgRefusal(message) {
+  const error = new CliError(message);
+  error.status = 403;
+  error.organizationSecretRefused = true;
+  return error;
+}
+
 class SecretManager {
   constructor(options) {
+    this.options = options;
     this.api = createSecretApi(options);
     this.scope = options.scope;
     this.now = options.now ?? Date.now;
@@ -88,7 +104,6 @@ class SecretManager {
 
   async set(name, value, settings = {}) {
     name = secretName(name);
-    requireStoredToken(name, settings.registry);
     secretName(`${name}_EXPIRES_AT`);
     const expiresAt = normalizedExpiry(settings.expiresAt);
     const grants = await this.api.access(settings);
@@ -100,6 +115,7 @@ class SecretManager {
     return {
       name,
       changed: true,
+      valueChanged: true,
       verified: true,
       verification:
         'GitHub accepted the encrypted value and metadata/access were re-read; plaintext is never readable.',
@@ -114,14 +130,14 @@ class SecretManager {
     let expiresAt = normalizedExpiry(await this.api.expiry(name));
     let valid = false;
     if (settings.validate && !settings.dryRun) {
-      const result = await callRegistry(
+      const result = await callCallback(
         settings.validate,
         { name, scope: this.scope, metadata, expiresAt },
         'validation'
       );
       if (typeof result?.valid !== 'boolean') {
         throw new CliError(
-          'Registry validity is unknown; validation must return { valid: true|false }.'
+          'Validity is unknown; validation must return { valid: true|false }.'
         );
       }
       if (!result.valid) {
@@ -130,6 +146,10 @@ class SecretManager {
       valid = true;
       expiresAt = normalizedExpiry(result.expiresAt ?? expiresAt);
     }
+    const health = await this.currentHealth(name, settings, expiresAt);
+    if (health?.status === 'auth-failing') {
+      return { reason: settings.reason ?? 'auth-failing', expiresAt };
+    }
     return {
       reason: expiryReason(expiresAt, this.now(), window),
       expiresAt,
@@ -137,32 +157,54 @@ class SecretManager {
     };
   }
 
+  async currentHealth(name, settings, expiresAt) {
+    let health = settings.health;
+    if (
+      !health &&
+      !settings.validate &&
+      !expiresAt &&
+      !settings.dryRun &&
+      !this.scope.environment
+    ) {
+      try {
+        health = await createSecretHealth(this.options).health(name, {
+          scope: this.scope,
+          repos: settings.repos,
+          failurePatterns: settings.failurePatterns,
+        });
+      } catch {
+        health = { status: 'unknown' };
+      }
+    }
+    return health;
+  }
+
   async candidate(name, metadata, reason, settings, window) {
     if (typeof settings.acquire !== 'function') {
       throw new CliError(
-        'A registry acquisition callback or stdin value is required to create or rotate this token.',
+        'An acquisition callback or stdin value is required to create or rotate this secret.',
         EXIT_CODES.USAGE
       );
     }
-    const acquired = await callRegistry(
+    const acquired = await callCallback(
       settings.acquire,
       { name, scope: this.scope, metadata, reason },
       'acquisition'
     );
     const token = typeof acquired === 'string' ? { value: acquired } : acquired;
     if (!token || typeof token.value !== 'string') {
-      throw new CliError('Registry acquisition must return a token value.');
+      throw new CliError('Acquisition must return a secret value.');
     }
     let checked = {};
     if (settings.validate) {
-      checked = await callRegistry(
+      checked = await callCallback(
         settings.validate,
         { name, scope: this.scope, value: token.value },
         'validation'
       );
       if (checked?.valid !== true) {
         throw new CliError(
-          'The registry did not validate the replacement token.'
+          'The callback did not validate the replacement secret.'
         );
       }
     }
@@ -179,7 +221,136 @@ class SecretManager {
 
   async ensure(name, settings = {}) {
     name = secretName(name);
-    requireStoredToken(name, settings.registry);
+    if (
+      !this.scope.org ||
+      !settings.repos?.length ||
+      settings.fallback === false
+    ) {
+      return this.ensureScoped(name, settings);
+    }
+    if (settings.visibility && settings.visibility !== 'selected') {
+      throw new CliError(
+        'Organization-first ensure requires selected visibility.',
+        EXIT_CODES.USAGE
+      );
+    }
+    const repositories = selectedTargets(this.scope.org, settings.repos);
+    let acquired;
+    const acquire =
+      settings.acquire &&
+      ((input) => {
+        acquired ??= callCallback(settings.acquire, input, 'acquisition');
+        return acquired;
+      });
+    try {
+      await this.checkOrganizationPlan(repositories, settings);
+      const result = await this.ensureScoped(name, {
+        ...settings,
+        visibility: 'selected',
+        acquire,
+      });
+      return { ...result, path: 'organization' };
+    } catch (error) {
+      if (
+        !error.organizationSecretRefused ||
+        ![403, 404, 422].includes(error.status)
+      ) {
+        throw error;
+      }
+      return this.ensureFallback(
+        name,
+        repositories,
+        { ...settings, acquire },
+        error
+      );
+    }
+  }
+
+  async checkOrganizationPlan(repositories, settings) {
+    let organization;
+    try {
+      organization = await this.options.rest.request(
+        `/orgs/${encodeURIComponent(this.scope.org)}`
+      );
+    } catch {
+      /* Account metadata is optional; the secrets API remains authoritative. */
+    }
+    if (organization?.plan?.name !== 'free' || settings.dryRun) {
+      return;
+    }
+    for (const repo of repositories) {
+      if ((await this.api.repository(`${repo.owner}/${repo.name}`)).private) {
+        throw orgRefusal(
+          'Organization plan does not expose secrets to private repositories.'
+        );
+      }
+    }
+  }
+
+  async ensureFallback(name, repositories, settings, error) {
+    const results = [];
+    const revocations = [];
+    for (const repo of repositories) {
+      const scope = { repo };
+      const manager = new SecretManager({ ...this.options, scope });
+      results.push({
+        ...(await manager.ensureScoped(name, {
+          ...settings,
+          visibility: undefined,
+          repos: undefined,
+          revokePrevious:
+            settings.revokePrevious &&
+            ((context) => {
+              revocations.push(context);
+            }),
+        })),
+        scope,
+      });
+    }
+    for (const context of revocations) {
+      await callCallback(settings.revokePrevious, context, 'revocation');
+    }
+    return {
+      name,
+      changed: results.some((result) => result.changed),
+      valueChanged: results.some((result) => result.valueChanged),
+      path: 'repository',
+      fallbackReason: `${error.message} Used selected repository secrets.`,
+      results,
+    };
+  }
+
+  async ensureAccess(name, metadata, settings) {
+    if (!this.scope.org || !settings.repos?.length || !metadata) {
+      return false;
+    }
+    if (metadata.visibility === 'all') {
+      return false;
+    }
+    const repositories = await Promise.all(
+      settings.repos.map((repo) => this.api.repository(repo))
+    );
+    if (metadata.visibility === 'private') {
+      if (repositories.some((repo) => !repo.private)) {
+        throw orgRefusal(
+          'Existing private-only organization secret cannot be exposed to a public repository without replacing its value.'
+        );
+      }
+      return false;
+    }
+    const missing = repositories.filter(
+      (repo) =>
+        !metadata.selected_repositories?.some((grant) => grant.id === repo.id)
+    );
+    if (!missing.length) {
+      return false;
+    }
+    await this.api.addRepositories(name, missing);
+    return true;
+  }
+
+  async ensureScoped(name, settings = {}) {
+    name = secretName(name);
     secretName(`${name}_EXPIRES_AT`);
     normalizedExpiry(settings.expiresAt);
     const window = rotationWindow(settings);
@@ -189,15 +360,11 @@ class SecretManager {
     if (settings.dryRun) {
       return {
         ...this.plan('ensure', name, options),
-        reason: state.reason ?? 'registry-validation-required',
+        reason: state.reason ?? 'existing',
       };
     }
     if (!state.reason) {
-      if (!state.expiresAt && !state.valid) {
-        throw new CliError(
-          'Existing token validity is unknown; supply a registry validator or recorded expiry.'
-        );
-      }
+      const accessChanged = await this.ensureAccess(name, metadata, settings);
       if (
         state.expiresAt &&
         state.expiresAt !== (await this.api.expiry(name))
@@ -210,12 +377,13 @@ class SecretManager {
       }
       return {
         name,
-        changed: false,
-        reason: 'valid',
+        changed: accessChanged,
+        valueChanged: false,
+        reason: state.valid || state.expiresAt ? 'valid' : 'existing',
         expiresAt: state.expiresAt,
       };
     }
-    // Resolve access before asking a registry to create a token.
+    // Resolve access before asking the caller to acquire a replacement.
     await this.api.access(options);
     const token = await this.candidate(
       name,
@@ -229,7 +397,7 @@ class SecretManager {
       expiresAt: token.expiresAt,
     });
     if (metadata && settings.revokePrevious) {
-      await callRegistry(
+      await callCallback(
         settings.revokePrevious,
         { name, scope: this.scope, metadata },
         'revocation'
@@ -248,49 +416,52 @@ class SecretManager {
     return { name, changed: true, verified: true };
   }
 
-  async cleanup(registry, settings = {}) {
-    const names = TRUSTED_PUBLISHING_SECRETS[registry?.toLowerCase()];
-    if (!names) {
+  async cleanup(names, settings = {}) {
+    if (!Array.isArray(names) || !names.length || !settings.reason) {
       throw new CliError(
-        'Cleanup requires a registry that supports trusted publishing.',
+        'Cleanup requires explicit secret names and a reason.',
         EXIT_CODES.USAGE
       );
     }
+    names = names.map(secretName);
     const existing = (await this.api.list()).filter((item) =>
       names.includes(item.name)
     );
     if (settings.dryRun) {
       return {
-        registry,
+        reason: settings.reason,
         names: existing.map((item) => item.name),
         dryRun: true,
-        requires: 'Verified trusted publishing before deletion',
+        requires: 'Caller verification before deletion',
       };
     }
     if (
-      !settings.verifyTrustedPublishing ||
-      (await callRegistry(
-        settings.verifyTrustedPublishing,
-        { registry, scope: this.scope, secrets: existing },
-        'trusted publishing verification'
+      !settings.verify ||
+      (await callCallback(
+        settings.verify,
+        {
+          names,
+          reason: settings.reason,
+          scope: this.scope,
+          secrets: existing,
+        },
+        'cleanup verification'
       )) !== true
     ) {
-      throw new CliError(
-        'Trusted publishing is not verified; legacy secrets were retained.'
-      );
+      throw new CliError('Cleanup is not verified; secrets were retained.');
     }
     for (const item of existing) {
       await this.api.delete(item.name);
     }
     return {
-      registry,
+      reason: settings.reason,
       deleted: existing.map((item) => item.name),
       verified: true,
     };
   }
 }
 
-/** Secrets service for package-registry-manager and CLI consumers. */
+/** Generic Actions secrets service for library and CLI consumers. */
 export function createSecretManager(options) {
   return new SecretManager(options);
 }

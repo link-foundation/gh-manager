@@ -1,44 +1,18 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it, expect } from 'test-anywhere';
-import { runCli } from '../src/cli/main.js';
+import { apiCommand } from './fixtures/cli.js';
 import { secretsApi } from './fixtures/secrets-api.js';
 
 async function command(args, options = {}) {
   const api = options.api ?? (await secretsApi());
-  const stdout = [];
-  const stderr = [];
   let reads = 0;
-  const home = mkdtempSync(join(tmpdir(), 'gh-manager-secrets-cli-'));
-  let code;
-  try {
-    code = await runCli(['secret', ...args], {
-      env: {},
-      home,
-      stdout: (line) => stdout.push(line),
-      stderr: (line) => stderr.push(line),
-      deps: {
-        resolveToken: () => ({ token: 'fake', source: 'test' }),
-        createRest: () => api.rest,
-        readSecret: async () => {
-          reads++;
-          return 'private-value\n';
-        },
-        confirm: () => true,
-        ...options.deps,
-      },
-    });
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-  return {
-    ...api,
-    code,
-    output: stdout.join('\n'),
-    errors: stderr.join('\n'),
-    reads,
-  };
+  const result = await apiCommand(['secret', ...args], api, {
+    readSecret: async () => {
+      reads++;
+      return 'private-value\n';
+    },
+    ...options.deps,
+  });
+  return { ...api, ...result, reads };
 }
 
 describe('secret CLI', () => {
