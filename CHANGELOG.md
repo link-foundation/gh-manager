@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0
+
+### Major Changes
+
+- Add stable GitHub repository/run discovery and Actions-log secret
+  health/testing APIs and CLI commands. Ensure organization secrets first with
+  selected-repository fallback and minimum writes. Replace built-in external
+  publishing policies with caller-supplied names, reasons and generic callbacks;
+  remove the registry option and publishing policy exports. Fix shared-runner
+  timing headroom and preview regeneration shell handling.
+
+  Add the protect command and library API for all-branch organization rulesets,
+  user-owned repositories and safe repository/classic fallbacks, with dry-run
+  plans, confirmed updates and API verification.
+
 ## 0.16.0
 
 ### Minor Changes
