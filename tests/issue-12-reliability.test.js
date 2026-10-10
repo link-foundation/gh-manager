@@ -9,6 +9,18 @@ const job = parse(readFileSync('.github/workflows/example-app.yml', 'utf8'))
   .jobs['preview-regen'];
 
 describe('preview regeneration shell contract', () => {
+  it('waits for the heading rendered by the example app', () => {
+    const app = readFileSync('examples/universal-app/src/App.js', 'utf8');
+    const script = readFileSync('scripts/update-preview-images.mjs', 'utf8');
+    const heading = app.match(/h\('h1',\s*\{\s*id:\s*'([^']+)'/);
+    expect(Boolean(heading)).toBe(true);
+    const selectors = Array.from(
+      script.matchAll(/waitForSelector\(\{\s*selector:\s*'([^']+)'/g),
+      (match) => match[1]
+    );
+    expect(selectors).toContain(`#${heading[1]}`);
+  });
+
   it('uses Bash for container steps and passes drift through the environment', () => {
     expect(job.defaults?.run?.shell).toBe('bash');
     const summary = job.steps.find(

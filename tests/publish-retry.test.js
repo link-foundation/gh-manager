@@ -63,6 +63,23 @@ describe('waitForVersionOnRegistry', () => {
 });
 
 describe('isAlreadyPublishedError', () => {
+  it('ignores Changesets package counts before a failed first publish', () => {
+    for (const summary of [
+      '0 packages are already published.',
+      '1 package is already published.',
+      '12 packages are already published.',
+      '  0 packages are already published.\r',
+    ]) {
+      const output = `${summary}\nSome packages failed to publish:\n@scope/pkg@1.0.0\nE404: Not Found - PUT https://registry.npmjs.org/@scope%2fpkg`;
+      expect(isAlreadyPublishedError(output)).toBe(false);
+    }
+    expect(
+      isAlreadyPublishedError(
+        '0 packages are already published.\nThis version is already published.'
+      )
+    ).toBe(true);
+  });
+
   it('detects publish conflicts', () => {
     expect(
       isAlreadyPublishedError(
@@ -95,6 +112,28 @@ describe('isAlreadyPublishedError', () => {
 });
 
 describe('publishWithRetry', () => {
+  it('preserves first-publish authentication failures without polling', async () => {
+    const error = new Error('E404: Not Found - PUT');
+    error.nonRetryable = true;
+    let checks = 0;
+    const result = await publishWithRetry({
+      publish: async () => ({
+        success: false,
+        error,
+        output: '0 packages are already published.\nE404: Not Found - PUT',
+      }),
+      verify: async () => {
+        checks++;
+        return false;
+      },
+      sleepFn: noSleep,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toBe(error);
+    expect(result.publishAttempts).toBe(1);
+    expect(checks).toBe(0);
+  });
+
   it('treats an E409 staged-version conflict as a cue to verify', async () => {
     const result = await publishWithRetry({
       publish: async () => ({
