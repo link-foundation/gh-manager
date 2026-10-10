@@ -56,7 +56,14 @@ const ALREADY_PUBLISHED_PATTERNS = [
  * @returns {boolean}
  */
 export function isAlreadyPublishedError(output) {
-  const lowerOutput = String(output || '').toLowerCase();
+  // Changesets reports the count of unrelated published packages before it
+  // attempts publication. That summary is not a conflict for this version.
+  const lowerOutput = String(output || '')
+    .replace(
+      /^[ \t]*\d+ packages? (?:are |is )?already published\.?[ \t\r]*$/gim,
+      ''
+    )
+    .toLowerCase();
   return ALREADY_PUBLISHED_PATTERNS.some((pattern) =>
     lowerOutput.includes(pattern)
   );
