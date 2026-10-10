@@ -314,8 +314,10 @@ jobs:
 
       - name: Summarize regeneration result
         if: always()
+        env:
+          DRIFT: ${{ steps.drift.outputs.drift }}
         run: |
-          if [[ "${{ steps.drift.outputs.drift }}" == "true" ]]; then
+          if [[ "$DRIFT" == "true" ]]; then
             echo "::notice::Preview images regenerated and (if applicable) committed to main."
           else
             echo "::notice::Preview images are already up to date."

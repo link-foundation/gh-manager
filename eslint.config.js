@@ -139,6 +139,7 @@ export default [
   },
   {
     ignores: [
+      'ci-logs/**',
       'node_modules/**',
       '**/node_modules/**',
       'coverage/**',

@@ -52,8 +52,14 @@ export { createSecretManager } from './secrets/manager.js';
 export { createProtectionManager } from './protection/manager.js';
 export { DEFAULT_PROTECTION_RULES } from './protection/policy.js';
 export { auditWorkflows } from './secrets/audit.js';
+export { githubAppPlan } from './secrets/policy.js';
 export {
-  TRUSTED_PUBLISHING_SECRETS,
-  publishingPolicy,
-  githubAppPlan,
-} from './secrets/policy.js';
+  createRepoManager,
+  createRepoManager as repos,
+} from './github/repos.js';
+export { createRunManager, createRunManager as runs } from './github/runs.js';
+export {
+  createSecretHealth,
+  createSecretHealth as health,
+} from './secrets/health.js';
+export { createSecretManager as secrets } from './secrets/manager.js';

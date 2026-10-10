@@ -132,21 +132,46 @@ class SecretApi {
       return null;
     }
     if (result.status === 401 || result.status === 403) {
-      const resource = path.includes('/variables') ? 'Variables' : 'Secrets';
-      const permission = this.scope.org
-        ? `Organization ${resource.toLowerCase()} permission (read for reads, write for changes), or org admin access with admin:org. Run gh auth refresh -s admin:org; private repositories also need repo scope.`
-        : `${this.scope.environment ? 'Environments' : resource} repository permission (read for reads, write for changes), or repo scope and repository admin access.`;
-      throw new CliError(
-        `GitHub HTTP ${result.status}: Actions secrets access denied. Use ${permission} Browser settings: ${this.settings}`,
-        EXIT_CODES.AUTH
-      );
+      throw this.requestError(path, result.status, true);
     }
     if (!result.ok) {
-      throw new CliError(
-        `GitHub HTTP ${result.status}: Actions secrets operation failed. Check target access at ${this.settings}.`
-      );
+      throw this.requestError(path, result.status);
     }
     return result.body;
+  }
+
+  requestError(path, status, denied = false) {
+    const resource = path.includes('/variables') ? 'Variables' : 'Secrets';
+    const permission = this.scope.org
+      ? `Organization ${resource.toLowerCase()} permission (read for reads, write for changes), or org admin access with admin:org. Run gh auth refresh -s admin:org; private repositories also need repo scope.`
+      : `${this.scope.environment ? 'Environments' : resource} repository permission (read for reads, write for changes), or repo scope and repository admin access.`;
+    const error = new CliError(
+      denied
+        ? `GitHub HTTP ${status}: Actions secrets access denied. Use ${permission} Browser settings: ${this.settings}`
+        : `GitHub HTTP ${status}: Actions secrets operation failed. Check target access at ${this.settings}.`,
+      denied ? EXIT_CODES.AUTH : EXIT_CODES.FAILURE
+    );
+    error.status = status;
+    error.organizationSecretRefused = Boolean(
+      this.scope.org && path.includes('/actions/secrets')
+    );
+    return error;
+  }
+
+  async addRepositories(name, repositories) {
+    for (const repository of repositories) {
+      await this.send(
+        `${this.base}/secrets/${secretName(name)}/repositories/${repository.id}`,
+        { method: 'PUT' }
+      );
+    }
+    await this.verify(
+      () => this.getMetadata(name),
+      (metadata) =>
+        repositories.every((repo) =>
+          metadata?.selected_repositories?.some((grant) => grant.id === repo.id)
+        )
+    );
   }
 
   async pages(path, property) {

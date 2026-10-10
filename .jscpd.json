@@ -2,6 +2,7 @@
   "minTokens": 50,
   "minLines": 5,
   "ignore": [
+    "**/ci-logs/**",
     "**/node_modules/**",
     "**/build/**",
     "**/dist/**",

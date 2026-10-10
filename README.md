@@ -18,7 +18,7 @@ gh-manager package public box box-dind --org link-foundation
 
 ## Features
 
-- Organization, repository and environment Actions secrets: encrypted storage, expiry-driven rotation and publishing-policy audits.
+- Organization, repository and environment Actions secrets: encrypted storage, organization fallback and Actions-log health checks.
 - Protect every branch of an organization, user or repository against deletion and force pushes, with safe API fallbacks.
 
 - **One login, reused**: a dedicated Chrome profile in `~/.gh-manager/`
@@ -316,69 +316,94 @@ API: [code security configurations](https://docs.github.com/en/rest/code-securit
 
 ### secret
 
-Actions secrets for organizations, repositories and environments are managed through the authenticated REST API. Secret values enter through stdin or the library API and are encrypted with GitHub's public key using a libsodium sealed box. Values never appear in output, dry-run plans or debug logs.
+Actions secrets use the authenticated GitHub REST API and libsodium sealed-box encryption. Values enter through stdin or caller callbacks and never appear in results, dry runs or debug logs. Secret names, reasons, validation and failure patterns belong to the caller.
 
 ```bash
-# Organization scope; selected repositories are the default access level.
-gh-manager secret set DOCKERHUB_TOKEN --org link-foundation --repos gh-manager < token.txt
+# Try selected organization scope first; fall back to each repository on refusal.
+gh-manager secret ensure CUSTOM_TOKEN --org link-foundation --repos gh-manager,project < token.txt
 gh-manager secret list --org link-foundation --repo gh-manager --json
-gh-manager secret get-metadata DOCKERHUB_TOKEN --org link-foundation
+gh-manager secret get-metadata CUSTOM_TOKEN --org link-foundation
 
-# Repository and environment scopes.
-gh-manager secret set MAVEN_TOKEN --repo link-foundation/project < token.txt
-gh-manager secret set MAVEN_TOKEN --repo link-foundation/project --env production < token.txt
+# Explicit repository or environment storage.
+gh-manager secret set CUSTOM_TOKEN --repo link-foundation/project < token.txt
+gh-manager secret set CUSTOM_TOKEN --repo link-foundation/project --env production < token.txt
 
-# Rotate only if absent, invalid, expired or within seven days of expiry.
-gh-manager secret ensure DOCKERHUB_TOKEN --org link-foundation --repos gh-manager --validator ./registry.mjs
-# Without a module, stdin supplies a replacement only when one is needed.
-gh-manager secret ensure DOCKERHUB_TOKEN --repo link-foundation/project --expires-at 2099-01-01T00:00:00Z < token.txt
+# Inspect the latest runs of workflows referencing this name.
+gh-manager secret health CUSTOM_TOKEN --org link-foundation --failure-pattern 'CUSTOM_AUTH_ERROR' --json
+gh-manager secret health CUSTOM_TOKEN --repo link-foundation/project --json
+# Dispatch a workflow, or rerun its latest run, wait, then classify the evidence.
+gh-manager secret test CUSTOM_TOKEN --repo link-foundation/project --timeout 300
+# A caller can explicitly report a broken secret after inspecting its health.
+gh-manager secret ensure CUSTOM_TOKEN --repo link-foundation/project --broken --reason 'Actions authentication failure' < token.txt
 
 gh-manager secret audit --org link-foundation --json
-gh-manager secret audit --org link-foundation --repo gh-manager --json
-gh-manager secret delete MAVEN_TOKEN --repo link-foundation/project --dry-run
+gh-manager secret delete CUSTOM_TOKEN --repo link-foundation/project --dry-run
+# Cleanup takes explicit names and a reason; execution requires a verification callback.
+gh-manager secret cleanup OLD_TOKEN --repo link-foundation/project --reason 'Caller migration' --validator ./validator.mjs --dry-run
 ```
 
-Use `--visibility all|private|selected` for organization writes; `selected` requires `--repos a,b`. `--org` and `--repo` together filter organization metadata and audit; writes accept one scope. `--env` requires `--repo`. All writes support `--dry-run`, which does not read stdin or invoke acquisition, validation or revocation callbacks. Set/delete dry runs make no requests; ensure/cleanup dry runs read metadata to print the plan. Deletion asks for confirmation; `--yes` is available for automation.
+`ensure` leaves existing secrets unchanged when health is `ok` or `unknown`, unless a caller validator or recorded expiry establishes that replacement is needed. Organization ensure uses `selected` visibility and `--repos`; on organization permission, plan or personal-account refusal it reports `path: "repository"`, a fallback reason, and one result per repository. Explicit `set` overwrites the chosen scope. Repository secrets override organization secrets with the same name.
 
-`--validator ./registry.mjs` loads a local ES module supplied by the registry manager. It can export:
+Health returns `ok`, `auth-failing` or `unknown`, plus workflow/job/step evidence. Only a failed step that uses the secret and has a matching log line is `auth-failing`; generic patterns include 401, 403, unauthorized, bad credentials, expired and invalid token. Successful secret steps can be `ok` even when unrelated steps fail. No runs, skipped steps, unresolved names, unreadable evidence and non-authentication failures are `unknown`. Static dot and bracket references are supported; dynamic references and reusable workflow internals require separate inspection. Logs are GitHub-masked and additionally redact common credential forms.
 
-- `validate({ name, scope, metadata, expiresAt, value })` returning `{ valid: true|false, expiresAt? }`. For an existing secret, GitHub cannot return its value: use registry state or an authenticated workflow probe. For a replacement, `value` is available only in memory. Exceptions and unknown validation fail without rotating.
-- `acquire({ name, scope, metadata, reason })` returning a string or `{ value, expiresAt? }`. Called only when rotation is needed; the default CLI acquisition reads stdin.
-- `revokePrevious({ name, scope, metadata })`, retaining any registry-side token identifier in the caller's closure. Called after GitHub confirms the new secret and expiry variable.
-- `verifyTrustedPublishing({ registry, scope, secrets })` returning `true` only after checking successful OIDC publishing. For an organization secret, verify every repository that can use it.
+`secret test` uses `workflow_dispatch` when supported, otherwise reruns the last run. `--input name=value` supplies dispatch inputs. Polling is bounded by `--timeout` (seconds); a timeout returns `unknown` evidence. A rerun must have a newer attempt before its result is accepted. Health/testing operate on organization/repository scope, not environment-specific secret attribution.
 
-Expiry comes from the registry. It is stored as a nonsecret `NAME_EXPIRES_AT` Actions variable at the same scope and visibility, with the same selected repository grants. A replacement without expiry removes old expiry metadata. `--rotate-before <seconds>` changes the seven-day window. An existing secret with neither expiry nor a validator has unknown validity and fails explicitly. A future recorded expiry can establish that rotation is not due; registry rejection can still force rotation when a validator is supplied.
+All writes support `--dry-run`. Set/delete dry runs make no requests; ensure/cleanup read metadata but never read stdin or invoke callbacks. Delete/cleanup request confirmation unless `--yes` is supplied. `--org` plus `--repo` filters list/get-metadata/audit; storage uses one scope. `--env` requires `--repo`.
 
-GitHub accepting the ciphertext and re-reading metadata confirms storage and access. It cannot prove the plaintext value or a registry login. The registry validator checks the candidate before storage; an integration can then run a workflow probe. Secret and expiry writes are separate GitHub requests: a metadata failure returns an error and never revokes the old registry token, but the new secret may already be stored.
+`--validator ./validator.mjs` is a generic local ES module with optional `validate`, `acquire`, `revokePrevious`, and cleanup `verify` exports. gh-manager runs these hooks without deciding what they check. Callbacks receive secret name, scope and metadata; candidate validation receives the value only in memory. Callback errors are sanitized. Optional caller expiry is recorded in `NAME_EXPIRES_AT` at matching scope/access; `--rotate-before` changes the seven-day rotation window. Secret and expiry writes are separate requests, so a metadata failure can leave the new ciphertext stored; revocation does not run after failed verification.
 
-Publishing policy is trusted publishing first: npm, PyPI, crates.io, RubyGems, NuGet and JSR credentials are never stored. crates.io's first-publish credential belongs in memory and must be revoked by the registry manager. Docker Hub, Maven Central, VS Code Marketplace, Open VSX and Chrome Web Store tokens can be stored and rotated. GHCR uses the workflow `GITHUB_TOKEN` with `packages: write`.
+Audit parses default-branch workflow YAML, ignoring comments. Dynamic references, unreadable workflows and partial organization inventories make unmatched names only _possibly unused_; audit never deletes them. `RELEASE_PR_TOKEN` users can request a GitHub App plan:
 
 ```bash
-# This prints the cleanup plan. Execution requires the verification callback.
-gh-manager secret cleanup --repo link-foundation/project --registry npm --dry-run
-gh-manager secret cleanup --repo link-foundation/project --registry npm --validator ./registry.mjs --yes
-```
-
-Audit reads `.github/workflows/*.yml` and `*.yaml` from the default branch, parses YAML to ignore comments, and reports `secrets.NAME` and literal bracket references with workflow locations and publishing recommendations. Organization audit enumerates repositories. Unreadable workflows, dynamic indexing, `secrets: inherit`, and a repository-filtered organization audit make the inventory incomplete; unmatched secrets are reported as _possibly unused_, never deleted. References in composite actions, other branches or external tooling require separate review.
-
-A `401` or `403` explains the required permissions and links the browser settings page. Organization access needs org admin access with classic `admin:org` (and `repo` for private repositories), or fine-grained Organization secrets permissions. Run `gh auth refresh -s admin:org` for a GitHub CLI login; injected tokens must be replaced with one having the correct permissions. Repository secrets need repository Secrets permissions; environment secrets need Environments permissions. Companion variables also require Variables permissions. Browser settings guidance lets a signed-in maintainer complete an operation when the API token lacks access.
-
-For release PR automation, prefer a GitHub App installation token over `RELEASE_PR_TOKEN`:
-
-```bash
-# Review registration URL, minimal permissions, installation and workflow snippet.
 gh-manager secret setup-app --org link-foundation --dry-run
-# After registering/installing the App, store its ID and private key securely.
 gh-manager secret setup-app --org link-foundation --app-id 123 --repos gh-manager < app-key.pem
 ```
 
-The plan uses `actions/create-github-app-token` and `APP_ID` / `APP_PRIVATE_KEY`. Retain a PAT only as a fallback when an App cannot be installed. App creation and installation occur in GitHub settings; the command stores and verifies supplied credentials.
+Organization secrets need `admin:org` (and `repo` for private repositories), or fine-grained Organization secrets permissions. Repository secrets need Secrets permissions; environment secrets need Environments permissions. Companion metadata needs Variables permissions. Private workflow data needs Actions read permission; dispatch/rerun needs Actions write.
 
-The package's release jobs use npm OIDC exclusively. For a package absent from npm, bootstrap and attach its trusted publisher with browser sign-in:
+### repo and runs
+
+Discover repositories, selected files, Actions runs and log evidence without cloning:
 
 ```bash
-package-registry-manager setup --registry npm --package @link-foundation/gh-manager --execute
+gh-manager repo list --org link-foundation --json
+gh-manager repo list --user konard --include-archived --include-forks --json
+gh-manager repo files link-foundation/project --match '**/manifest.json' --match '.github/workflows/*.yml' --content
+gh-manager runs list link-foundation/project --workflow release.yml --branch main --status failure
+gh-manager runs logs https://github.com/link-foundation/project/actions/runs/123 --grep 'CALLER_ERROR'
+gh-manager runs logs 123 --repo link-foundation/project --grep 'CALLER_ERROR'
+gh-manager runs failures --org link-foundation --grep 'CALLER_ERROR' --json
 ```
+
+Repository listing omits archived repositories and forks by default. File globs support `*`, `?` and `**`; content is read by immutable blob SHA, with subtree traversal when GitHub truncates a recursive tree. Run listing follows pagination. `runs failures` inspects the latest default-branch run before checking failure logs, so a recovered repository is not reported from an older failure.
+
+### Stable library API
+
+The package entry exports typed `secrets`, `health`, `repos`, and `runs` factory aliases, plus `createSecretManager`, `createSecretHealth`, `createRepoManager`, and `createRunManager`. These services use an injected REST client and are supported for programmatic use:
+
+```js
+import {
+  createRestClient,
+  secrets,
+  health,
+  repos,
+  runs,
+} from '@link-foundation/gh-manager';
+const options = { rest: createRestClient({ token: process.env.GH_TOKEN }) };
+const repositories = await repos(options).list({ org: 'link-foundation' });
+const files = await repos(options).files('link-foundation/project', {
+  match: ['**/manifest.json', '.github/workflows/*.yml'],
+  content: true,
+});
+const state = await health(options).health('CUSTOM_TOKEN', {
+  scope: { repo: { owner: 'link-foundation', name: 'project' } },
+  failurePatterns: ['CALLER_AUTH_ERROR'],
+});
+```
+
+See [the programmatic secret cycle](examples/ensure-publishing-secret.js), [API types](src/index.d.ts), and [the requirement/research report](docs/case-studies/issue-15/README.md). Factory options accept `rest` and optional debug logging; health additionally accepts injectable clock/sleep. CLI timeouts use seconds; library polling durations use milliseconds. API permission errors carry HTTP status; unreadable health evidence is `unknown`.
+
+Migration: built-in publishing-policy maps/functions and `--registry` were removed. Replace policy queries in the caller, pass explicit cleanup names/reason and a generic `verify` hook, and use `SecretCallbackContext` instead of `RegistrySecretContext`. Existing GitHub Packages and browser APIs remain available. gh-manager never invokes package-registry-manager; callers own their publishing integrations.
 
 ### config
 
