@@ -64,8 +64,13 @@ describe('waitForVersionOnRegistry', () => {
 
 describe('isAlreadyPublishedError', () => {
   it('ignores Changesets package counts before a failed first publish', () => {
-    for (const count of [0, 1]) {
-      const output = `${count} packages are already published.\nSome packages failed to publish:\n@scope/pkg@1.0.0\nE404: Not Found - PUT https://registry.npmjs.org/@scope%2fpkg`;
+    for (const summary of [
+      '0 packages are already published.',
+      '1 package is already published.',
+      '12 packages are already published.',
+      '  0 packages are already published.\r',
+    ]) {
+      const output = `${summary}\nSome packages failed to publish:\n@scope/pkg@1.0.0\nE404: Not Found - PUT https://registry.npmjs.org/@scope%2fpkg`;
       expect(isAlreadyPublishedError(output)).toBe(false);
     }
     expect(

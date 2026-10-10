@@ -48,4 +48,4 @@ package-registry-manager setup --registry npm --package @link-foundation/gh-mana
   --ref issue-12-flaky-budget-and-preview-shell --workflow release.yml --execute --yes --verbose
 ```
 
-It packed the pushed branch, checked the install/CLI, and completed a publish dry run. It then required npm browser sign-in. This environment has no authenticated npm account, and `xdg-open` failed with exit code 3. The unattended login was stopped; no package was published or trusted publisher configured. Package-owner browser authentication/2FA is still required to finish the first publication. No publishing token was added to GitHub secrets.
+It packed the then-remote branch (`78cc431`, version `0.16.0`), checked the install/CLI, and completed a publish dry run. It then required npm browser sign-in. This environment has no authenticated npm account, and `xdg-open` failed with exit code 3. The unattended login was stopped; no package was published or trusted publisher configured. Package-owner browser authentication/2FA is still required to finish the first publication. No publishing token was added to GitHub secrets.
