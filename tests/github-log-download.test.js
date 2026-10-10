@@ -2,6 +2,24 @@ import { describe, it, expect } from 'test-anywhere';
 import { createRestClient } from '../src/github/rest.js';
 
 describe('job log downloads', () => {
+  it('does not include malformed signed redirect credentials in errors', async () => {
+    const rest = createRestClient({
+      fetch: async () => ({
+        status: 302,
+        headers: { get: () => 'https://[invalid]?signature=private-value' },
+      }),
+    });
+    let error;
+    try {
+      await rest.text('/logs');
+    } catch (failure) {
+      error = failure;
+    }
+    expect(error?.name).toBe('GitHubApiError');
+    expect(String(error?.input)).not.toContain('private-value');
+    expect(error?.message).not.toContain('private-value');
+  });
+
   it('follows a signed redirect without sending the API token to the download host', async () => {
     const calls = [];
     const rest = createRestClient({

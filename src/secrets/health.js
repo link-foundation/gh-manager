@@ -134,7 +134,12 @@ class SecretHealthService {
       const matching = jobs.filter((job) =>
         matchesName(definition.name, job.name)
       );
-      if (!matching.length || definition.reusable) {
+      const ambiguous = matching.some(
+        (job) =>
+          usage.jobNames.filter((name) => matchesName(name, job.name))
+            .length !== 1
+      );
+      if (!matching.length || definition.reusable || ambiguous) {
         evidence.push({
           ...location,
           job: definition.name,

@@ -163,9 +163,15 @@ export function createRestClient({
       });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get('location');
-        const url = new URL(location, baseUrl);
+        let url;
+        try {
+          url = new URL(location, baseUrl);
+        } catch {
+          // URL parse errors can carry signed URLs in their input field.
+        }
         if (
           !location ||
+          !url ||
           url.protocol !== 'https:' ||
           url.username ||
           url.password

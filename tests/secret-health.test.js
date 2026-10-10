@@ -10,6 +10,18 @@ const options = { scope: { repo: repository }, timeout: 0, interval: 0 };
 const service = (api) => createSecretHealth({ rest: api.rest });
 
 describe('Actions evidence for secret health', () => {
+  it('does not attribute an unrelated job with the same display name to the secret', async () => {
+    const api = actionsApi({
+      conclusion: 'failure',
+      source:
+        'on: push\njobs:\n  publish:\n    name: Publish\n    steps:\n      - name: Upload\n        run: echo ${{ secrets.CUSTOM_TOKEN }}\n  unrelated:\n    name: Publish\n    steps:\n      - name: Upload\n        run: echo unrelated\n',
+    });
+    const result = await service(api).health('CUSTOM_TOKEN', options);
+    expect(result.status).toBe('unknown');
+    expect(result.evidence[0].reason).toBe('job-use-unresolved');
+    expect(api.calls.some((call) => call.path.endsWith('/logs'))).toBe(false);
+  });
+
   it('pins workflow source to the run commit', async () => {
     const api = actionsApi({
       routes: {

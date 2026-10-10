@@ -63,7 +63,9 @@ export function workflowUsage(source, name) {
   }
   const dispatch = supportsDispatch(workflow.on);
   const jobs = [];
+  const jobNames = [];
   for (const [id, job] of Object.entries(workflow.jobs ?? {})) {
+    jobNames.push(job.name ?? id);
     const selected = selectedSteps(workflow, job, name);
     if (
       selected.length ||
@@ -78,7 +80,7 @@ export function workflowUsage(source, name) {
       });
     }
   }
-  return { dispatch, jobs };
+  return { dispatch, jobs, jobNames };
 }
 
 export async function workflowFiles(rest, repo, ref) {

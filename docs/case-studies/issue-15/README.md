@@ -48,18 +48,20 @@ The failed `Example app` run [37779097805](https://github.com/link-foundation/gh
 
 Before implementation, the source-boundary test failed on the policy map/functions, and fallback tests failed with organization HTTP 403 instead of writing repository secrets. Those regression tests now pass. Additional fixtures verify every new CLI command, both health outcomes and unknown evidence, both dispatch/rerun paths, delayed revocation across multiple repositories, access-only updates, pagination and truncated trees.
 
+Final review reproduced two additional edge cases before correcting them: unrelated jobs with the same display name were classified as `auth-failing`, and malformed signed redirects escaped as URL errors containing the download URL. Health now requires an unambiguous match against every workflow job, and invalid redirects produce a sanitized API error. Both regressions now pass.
+
 ## Local validation
 
-- Node: 689 tests passed; Bun: 689 tests passed; Deno: 626 tests passed, with eight nested steps. Shell subprocess fixtures are intentionally skipped in Deno/Windows using the existing runtime guards.
+- Node: 691 tests passed; Bun: 691 tests passed; Deno: 628 tests passed, with eight nested steps. Shell subprocess fixtures are intentionally skipped in Deno/Windows using the existing runtime guards.
 - `npm run check`: lint, formatting and zero new duplication clones passed. Syntax checks passed for 38 scripts; all files satisfy the 1500-line limit.
 - Packed tarball installation and `experiments/github-services-smoke.mjs` verified the stable exported factories. `experiments/github-services-types.ts` compiles with strict TypeScript/NodeNext settings.
-- Logs remain in ignored `ci-logs/`. A first Bun pass had one transient symlink failure while formatting was active; its isolated rerun and the subsequent full suite passed.
+- Logs remain in ignored `ci-logs/`. A first Bun pass had one transient symlink failure while formatting was active; its isolated rerun and the subsequent full suite passed. During final review, an invocation without the documented `--timeout 30000` hit Bun's default five-second test limit. A downloaded upstream test in `ci-logs/` also entered Bun's discovery; preserving that download with a `.txt` extension restored the intended suite. Neither failure required changing the implementation or increasing the documented timeout.
 
 ## External scope and release prerequisites
 
 The upstream [shared template](https://github.com/link-foundation/js-ai-driven-development-pipeline-template/blob/main/tests/run-with-budget-warning.test.js) contains the same timing case. [template-timing.patch](template-timing.patch) updates its warning/kill tests and finite worker lifetimes. It is supplied for upstream application; it has not been pushed to a sibling repository because this task permits pushes only to the prepared gh-manager branch.
 
-The package lookup returns E404 and `npm whoami` returns ENEEDAUTH. The reviewed bootstrap plan selects the prepared branch, `release.yml`, and the GitHub Actions trusted publisher. Publication and publisher registration require a package-owner browser login/2FA; no stored publishing token is introduced. [npm's trust documentation](https://docs.npmjs.com/cli/v11/commands/npm-trust/) confirms that the package must exist before its publisher can be configured. The authorized bootstrap execution and current-head CI results are recorded in the PR when completed.
+The package lookup returns E404 and `npm whoami` returns ENEEDAUTH. The authorized bootstrap execution selected the prepared branch, `release.yml`, and the GitHub Actions trusted publisher. It completed packing, scratch installation, bin verification and publication dry-run validation. Browser login then failed to open (`xdg-open` exit 3), and the first login link expired without approval. The retry was stopped because this environment has no authenticated browser session. No package was published or publisher registered; no stored publishing token was introduced. [npm's trust documentation](https://docs.npmjs.com/cli/v11/commands/npm-trust/) confirms that the package must exist before its publisher can be configured. Current-head CI results are recorded in the PR during finalization.
 
 [Picomatch](https://github.com/micromatch/picomatch) is an available alternative for full Bash-style glob syntax. This implementation follows the repository's small glob API, adding slash-aware `*`, `?`, and `**` for file paths; those supported forms are documented. Adding brace/extglob syntax is a separate expansion, not required by the manifest/workflow use cases supplied in these issues.
 
@@ -73,6 +75,8 @@ The package lookup returns E404 and `npm whoami` returns ENEEDAUTH. The reviewed
 - [x] Implement generic secrets, fallback, repository/run discovery and Actions health/testing.
 - [x] Update all exports, declarations, CLI help, current documentation and examples; add release changeset.
 - [x] Run targeted tests, all Node/Bun/Deno tests, formatting/lint/duplication/syntax/line checks and package smoke test; save large logs.
-- [ ] Commit useful atomic steps; fetch/merge current main, push only the prepared branch.
-- [ ] Rewrite PR title/body; review full PR diff and all comments; check current-head CI logs and resolve failures.
-- [ ] Verify clean tree and mark PR 16 ready after dependent background work is finished.
+- [x] Commit useful atomic steps; fetch/merge current main, push only the prepared branch.
+- [x] Rewrite PR title/body; review PR diff and all three comment endpoints; resolve the reproduced review edge cases.
+- [x] Attempt authorized first publication and document the authentication boundary; finish or stop dependent background processes.
+
+Finalization verifies a clean working tree and passing checks for the final head, then marks PR 16 ready. These live GitHub results are recorded in the PR description.
