@@ -226,6 +226,9 @@ jobs:
   preview-regen:
     name: Regenerate Preview Images
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     container:
       # Keep this tag in sync with the playwright package version below.
       image: mcr.microsoft.com/playwright:v1.59.1-noble
@@ -310,8 +313,10 @@ jobs:
 
       - name: Summarize regeneration result
         if: always()
+        env:
+          DRIFT: ${{ steps.drift.outputs.drift }}
         run: |
-          if [[ "${{ steps.drift.outputs.drift }}" == "true" ]]; then
+          if [[ "$DRIFT" == "true" ]]; then
             echo "::notice::Preview images regenerated and (if applicable) committed to main."
           else
             echo "::notice::Preview images are already up to date."

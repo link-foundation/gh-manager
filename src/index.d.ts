@@ -343,8 +343,13 @@ export interface RestClient {
   hasToken: boolean;
   request: (
     path: string,
-    options?: { allowNotFound?: boolean }
+    options?: { allowNotFound?: boolean; method?: string; body?: unknown }
   ) => Promise<unknown>;
+  send: (
+    path: string,
+    options?: { method?: string; body?: unknown }
+  ) => Promise<{ status: number; ok: boolean; body: unknown }>;
+  text: (path: string) => Promise<string>;
   listPackages: (options: {
     owner: PackageOwner;
     packageType: string;
@@ -464,15 +469,15 @@ export interface SecretMetadata {
 export interface SecretOptions {
   visibility?: 'all' | 'private' | 'selected';
   repos?: string[];
-  registry?: string;
+  reason?: string;
   expiresAt?: string | null;
   dryRun?: boolean;
 }
 
-export interface RegistrySecretContext {
+export interface SecretCallbackContext {
   name: string;
   scope: SecretScope;
-  /** Existing GitHub values are unreadable. Validate through registry/workflow state. */
+  /** Existing GitHub values are unreadable. The caller chooses its validation. */
   metadata?: SecretMetadata | null;
   expiresAt?: string | null;
   /** Present only for a new candidate; never returned in results. */
@@ -481,28 +486,34 @@ export interface RegistrySecretContext {
 }
 
 export interface SecretEnsureOptions extends SecretOptions {
+  /** Disable organization-to-repository fallback explicitly. Default: enabled with repos. */
+  fallback?: boolean;
+  health?: { status: SecretHealthStatus };
+  failurePatterns?: string[];
   /** Default: seven days. */
   rotateBeforeMs?: number;
   validate?: (
-    context: RegistrySecretContext
+    context: SecretCallbackContext
   ) =>
     | { valid: boolean; expiresAt?: string }
     | Promise<{ valid: boolean; expiresAt?: string }>;
   acquire?: (
-    context: RegistrySecretContext
+    context: SecretCallbackContext
   ) =>
     | string
     | { value: string; expiresAt?: string }
     | Promise<string | { value: string; expiresAt?: string }>;
   /** Runs only after successful storage and metadata verification. */
   revokePrevious?: (
-    context: RegistrySecretContext
+    context: SecretCallbackContext
   ) => unknown | Promise<unknown>;
 }
 
 export interface SecretResult {
   name: string;
   changed?: boolean;
+  /** False for access-only updates; safe for callers deciding whether to revoke. */
+  valueChanged?: boolean;
   /** GitHub accepted the ciphertext; metadata/access were re-read. Not plaintext validation. */
   verified?: boolean;
   verification?: string;
@@ -513,6 +524,9 @@ export interface SecretResult {
   scope?: SecretScope;
   visibility?: 'all' | 'private' | 'selected';
   repos?: string[];
+  path?: 'organization' | 'repository';
+  fallbackReason?: string;
+  results?: SecretResult[];
 }
 
 export interface SecretManager {
@@ -526,18 +540,20 @@ export interface SecretManager {
   ensure(name: string, options?: SecretEnsureOptions): Promise<SecretResult>;
   delete(name: string, options?: { dryRun?: boolean }): Promise<SecretResult>;
   cleanup(
-    registry: string,
-    options?: {
+    names: string[],
+    options: {
+      reason: string;
       dryRun?: boolean;
-      /** For org secrets, verify OIDC in every affected repository before returning true. */
-      verifyTrustedPublishing?: (context: {
-        registry: string;
+      /** The caller verifies that deletion of these names is appropriate. */
+      verify?: (context: {
+        names: string[];
+        reason: string;
         scope: SecretScope;
         secrets: SecretMetadata[];
       }) => boolean | Promise<boolean>;
     }
   ): Promise<{
-    registry: string;
+    reason: string;
     deleted?: string[];
     names?: string[];
     dryRun?: boolean;
@@ -575,11 +591,6 @@ export declare function auditWorkflows(options: {
   secrets?: SecretMetadata[];
   inventoryComplete?: boolean;
 }): Promise<SecretAudit>;
-export declare const TRUSTED_PUBLISHING_SECRETS: Record<string, string[]>;
-export declare function publishingPolicy(
-  name: string,
-  registry?: string
-): string;
 export declare function githubAppPlan(org: string): {
   registration: string;
   permissions: { contents: string; pull_requests: string };
@@ -587,6 +598,165 @@ export declare function githubAppPlan(org: string): {
   credentials: string[];
   workflow: string;
   fallback: string;
+};
+
+/** Stable GitHub discovery API, available from the package entry. */
+export interface GitHubServiceOptions {
+  rest: RestClient;
+  log?: { debug: (message: string) => void };
+}
+export interface RepositoryInfo {
+  id?: number;
+  name: string;
+  full_name: string;
+  default_branch: string;
+  archived?: boolean;
+  fork?: boolean;
+  private?: boolean;
+}
+export interface RepositoryListOptions {
+  org?: string;
+  user?: string;
+  includeArchived?: boolean;
+  includeForks?: boolean;
+}
+export interface RepositoryFile {
+  path: string;
+  sha: string;
+  content?: string;
+}
+export interface RepoManager {
+  list(options: RepositoryListOptions): Promise<RepositoryInfo[]>;
+  files(
+    repo: Repository | string,
+    options: { match: string[]; content?: boolean; ref?: string }
+  ): Promise<RepositoryFile[]>;
+}
+export declare function createRepoManager(
+  options: GitHubServiceOptions
+): RepoManager;
+
+export interface WorkflowRun {
+  id: number;
+  workflow_id: number;
+  status: string;
+  conclusion: string | null;
+  run_attempt?: number;
+  head_branch: string;
+  head_sha?: string;
+  path?: string;
+  html_url: string;
+}
+export interface WorkflowStep {
+  name: string;
+  number: number;
+  status: string;
+  conclusion: string | null;
+  started_at?: string;
+  completed_at?: string;
+}
+export interface WorkflowJob {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  steps: WorkflowStep[];
+}
+export interface RunListOptions {
+  workflow?: string;
+  branch?: string;
+  status?: string;
+  event?: string;
+  limit?: number;
+}
+export interface LogMatch {
+  line: number;
+  text: string;
+}
+export interface RunLogMatch extends LogMatch {
+  repository: string;
+  runId: number;
+  runUrl: string;
+  jobId: number;
+  job: string;
+}
+export interface RunFailure {
+  repository: string;
+  runId: number;
+  runUrl: string;
+  matches: RunLogMatch[];
+}
+export interface RunManager {
+  list(
+    repo: Repository | string,
+    options?: RunListOptions
+  ): Promise<WorkflowRun[]>;
+  get(repo: Repository | string, id: number): Promise<WorkflowRun>;
+  jobs(repo: Repository | string, id: number): Promise<WorkflowJob[]>;
+  /** Unfiltered GitHub-masked log text for callers implementing classification. */
+  jobLog(repo: Repository | string, id: number): Promise<string>;
+  logs(
+    run: number | string,
+    options?: { repo?: Repository | string; grep?: string[] }
+  ): Promise<RunLogMatch[]>;
+  failures(options: {
+    org: string;
+    grep?: string[];
+    includeArchived?: boolean;
+    includeForks?: boolean;
+  }): Promise<RunFailure[]>;
+}
+export declare function createRunManager(
+  options: GitHubServiceOptions
+): RunManager;
+
+export type SecretHealthStatus = 'ok' | 'auth-failing' | 'unknown';
+export interface SecretHealthEvidence {
+  repository: string;
+  workflow?: string;
+  status: SecretHealthStatus;
+  reason?: string;
+  runId?: number;
+  runUrl?: string;
+  jobId?: number;
+  job?: string;
+  step?: string;
+  stepNumber?: number;
+  match?: LogMatch;
+}
+export interface SecretHealthResult {
+  name: string;
+  status: SecretHealthStatus;
+  evidence: SecretHealthEvidence[];
+}
+export interface SecretHealthOptions {
+  scope: SecretScope;
+  repos?: string[];
+  branch?: string;
+  failurePatterns?: string[];
+  /** Workflow test inputs; durations are milliseconds. */
+  inputs?: Record<string, string | boolean | number>;
+  timeout?: number;
+  interval?: number;
+}
+export interface SecretHealth {
+  health(
+    name: string,
+    options: SecretHealthOptions
+  ): Promise<SecretHealthResult>;
+  test(name: string, options: SecretHealthOptions): Promise<SecretHealthResult>;
+}
+export declare function createSecretHealth(
+  options: GitHubServiceOptions & {
+    now?: () => number;
+    sleep?: (milliseconds: number) => Promise<void>;
+  }
+): SecretHealth;
+export {
+  createSecretManager as secrets,
+  createSecretHealth as health,
+  createRepoManager as repos,
+  createRunManager as runs,
 };
 
 /** Protection always keeps deletion and non-fast-forward rules enabled. */

@@ -113,6 +113,7 @@ describe('Actions secrets API', () => {
       f.manager.ensure('DOCKERHUB_TOKEN', {
         acquire: () => TOKEN,
         repos: ['one'],
+        fallback: false,
       })
     );
     expect(error.exitCode).toBe(3);
@@ -135,25 +136,10 @@ describe('Actions secrets API', () => {
     f.secrets.set('OLD', { name: 'OLD' });
     expect((await failure(() => f.manager.delete('OLD'))).exitCode).toBe(6);
   });
-  it('rejects storing publishing tokens for OIDC registries and unknown scopes', async () => {
+  it('accepts caller secret names without publishing policy and rejects unknown scopes', async () => {
     const f = await fixture();
-    expect(
-      (
-        await failure(() =>
-          f.manager.set('NPM_TOKEN', TOKEN, { repos: ['one'] })
-        )
-      ).message
-    ).toContain('trusted publishing');
-    expect(
-      (
-        await failure(() =>
-          f.manager.set('TOKEN', TOKEN, {
-            registry: 'crates.io',
-            repos: ['one'],
-          })
-        )
-      ).message
-    ).toContain('never stored');
+    await f.manager.set('NPM_TOKEN', TOKEN, { repos: ['one'] });
+    expect(f.secrets.get('NPM_TOKEN').value).toBe(TOKEN);
     expect(
       (
         await failure(() =>
@@ -164,7 +150,7 @@ describe('Actions secrets API', () => {
   });
 });
 
-describe('registry-driven ensure and expiry', () => {
+describe('caller-driven ensure and expiry', () => {
   it('acquires an absent secret once and records matching expiry visibility', async () => {
     const f = await fixture();
     let acquired = 0;
@@ -231,16 +217,16 @@ describe('registry-driven ensure and expiry', () => {
       expect(f.variables.size).toBe(0);
     });
   }
-  it('refuses to guess validity when neither expiry nor a validator is available', async () => {
+  it('retains an existing secret when validity is unknown', async () => {
     const f = await fixture();
     f.secrets.set('DOCKERHUB_TOKEN', { name: 'DOCKERHUB_TOKEN' });
-    expect(
-      (
-        await failure(() =>
-          f.manager.ensure('DOCKERHUB_TOKEN', { acquire: () => TOKEN })
-        )
-      ).message
-    ).toContain('validity is unknown');
+    const result = await f.manager.ensure('DOCKERHUB_TOKEN', {
+      acquire: () => {
+        throw new Error('must not acquire');
+      },
+    });
+    expect(result.changed).toBe(false);
+    expect(result.reason).toBe('existing');
   });
   it('redacts registry callback failures even when the callback includes the token', async () => {
     const f = await fixture();
@@ -359,18 +345,24 @@ describe('verified rotation and trusted publishing cleanup', () => {
     expect(revoked).toBe(false);
     expect(f.secrets.get('TOKEN').value).toBe(TOKEN);
   });
-  it('cleans up legacy secrets only after trusted publishing is verified', async () => {
+  it('cleans up caller-selected secrets only after callback verification', async () => {
     const f = await fixture();
     f.secrets.set('NPM_TOKEN', { name: 'NPM_TOKEN' });
     expect(
       (
         await failure(() =>
-          f.manager.cleanup('npm', { verifyTrustedPublishing: () => false })
+          f.manager.cleanup(['NPM_TOKEN'], {
+            reason: 'Caller policy',
+            verify: () => false,
+          })
         )
       ).message
     ).toContain('not verified');
     expect(f.secrets.size).toBe(1);
-    await f.manager.cleanup('npm', { verifyTrustedPublishing: () => true });
+    await f.manager.cleanup(['NPM_TOKEN'], {
+      reason: 'Caller policy',
+      verify: () => true,
+    });
     expect(f.secrets.size).toBe(0);
   });
 });

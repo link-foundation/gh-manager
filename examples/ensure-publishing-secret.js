@@ -1,29 +1,47 @@
 import {
   createRestClient,
   createSecretManager,
+  createSecretHealth,
   resolveToken,
 } from '../src/index.js';
 
-// package-registry-manager supplies registry-specific callbacks. Its validator
-// checks existing credentials through registry/workflow state because GitHub
-// cannot return a stored secret value. New candidates receive an in-memory value.
-export function ensureDockerHubToken({
+// The caller owns issuance and revocation. GitHub logs establish health;
+// gh-manager only stores the caller's custom name and in-memory value.
+export async function ensurePublishingSecret({
+  name,
   organization,
   repositories,
-  validate,
+  failurePatterns = [],
   acquire,
   revokePrevious,
 }) {
   const { token } = resolveToken();
-  const manager = createSecretManager({
+  const options = {
     rest: createRestClient({ token }),
+  };
+  const scope = { org: organization };
+  const health = createSecretHealth(options);
+  const before = await health.health(name, {
+    scope,
+    repos: repositories,
+    failurePatterns,
+  });
+  const manager = createSecretManager({
+    ...options,
     scope: { org: organization },
   });
-  return manager.ensure('DOCKERHUB_TOKEN', {
-    registry: 'dockerhub',
+  const storage = await manager.ensure(name, {
     repos: repositories,
-    validate,
+    health: before,
     acquire,
-    revokePrevious,
   });
+  const after =
+    storage.changed || before.status === 'unknown'
+      ? await health.test(name, { scope, repos: repositories, failurePatterns })
+      : before;
+  // Revoke only after the replacement has passed the workflow that uses it.
+  if (storage.valueChanged && after.status === 'ok' && revokePrevious) {
+    await revokePrevious();
+  }
+  return { storage, health: after };
 }

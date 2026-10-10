@@ -30,7 +30,7 @@ export function repoSlug(repo) {
  * @returns {string} The name, when it is usable
  */
 function requireName(value, spec) {
-  if (NAME.test(value)) {
+  if (NAME.test(value) && value !== '.' && value !== '..') {
     return value;
   }
 
