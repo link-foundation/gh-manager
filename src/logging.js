@@ -15,7 +15,7 @@ import path from 'node:path';
  * @param {boolean} [options.verbose] - Emit debug lines
  * @param {(line: string) => void} [options.stdout] - Standard output sink
  * @param {(line: string) => void} [options.stderr] - Standard error sink
- * @returns {{info: Function, warn: Function, error: Function, debug: Function, verbose: boolean}} Logger
+ * @returns {{info: Function, progress: Function, warn: Function, error: Function, debug: Function, verbose: boolean}} Logger
  */
 export function createLogger({
   verbose = false,
@@ -25,6 +25,7 @@ export function createLogger({
   return {
     verbose,
     info: (message) => stdout(message),
+    progress: (message) => stderr(message),
     warn: (message) => stderr(`warning: ${message}`),
     error: (message) => stderr(`error: ${message}`),
     debug: (message) => {

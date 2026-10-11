@@ -18,5 +18,17 @@ export async function inspect() {
   });
   const repositories = await repos(options).list({ org: 'acme' });
   const logs = await runs(options).logs(1, { repo: 'acme/one', grep: ['401'] });
-  return { result, repositories, logs };
+  const messages = logs.map((entry) =>
+    'status' in entry ? `${entry.status}: ${entry.url}` : entry.text
+  );
+  const findings = await runs(options).failures({
+    org: 'acme',
+    retentionDays: 30,
+  });
+  const failures = findings.flatMap((entry) =>
+    entry.status === 'failure' ? entry.matches : []
+  );
+  const raw = await runs(options).jobLog('acme/one', 2);
+  const availability = typeof raw === 'string' ? raw.length : raw.httpStatus;
+  return { result, repositories, logs, messages, failures, availability };
 }

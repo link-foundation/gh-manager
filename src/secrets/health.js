@@ -9,6 +9,11 @@ import {
 } from '../github/discovery.js';
 import { createRepoManager } from '../github/repos.js';
 import { createRunManager } from '../github/runs.js';
+import {
+  expiredRun,
+  unavailableLogs,
+  validateRetentionDays,
+} from '../github/logs.js';
 import { pollUntil } from '../verification.js';
 import { secretName } from './api.js';
 import { workflowFiles, workflowUsage, workflowSource } from './workflows.js';
@@ -80,29 +85,25 @@ class SecretHealthService {
       await createRepoManager({ rest: this.rest, log: this.log }).list({
         org: scope.org,
       })
-    ).map((repo) => repositoryTarget(repo.full_name));
+    ).map((repo) => ({
+      ...repositoryTarget(repo.full_name),
+      default_branch: repo.default_branch,
+    }));
   }
 
-  async inventory(name, options) {
+  async inventory(name, repo, options) {
     const items = [];
-    for (const repo of await this.targets(options)) {
-      try {
-        for (const workflow of await workflowFiles(
-          this.rest,
-          repo,
-          options.branch
-        )) {
-          const usage = workflowUsage(workflow.source, name);
-          if (usage.jobs.length) {
-            items.push({ repo, ...workflow, usage });
-          }
-        }
-      } catch (error) {
-        // No speculative success on missing permissions or malformed YAML.
-        if (error.status === 401 || error.status === 403) {
-          throw error;
-        }
-        items.push({ repo, unreadable: true });
+    const branch =
+      options.branch ??
+      repo.default_branch ??
+      (await this.rest.request(repoPath(repo))).default_branch;
+    if (!branch) {
+      throw new CliError('GitHub did not return a default branch.');
+    }
+    for (const workflow of await workflowFiles(this.rest, repo, branch)) {
+      const usage = workflowUsage(workflow.source, name);
+      if (usage.jobs.length) {
+        items.push({ repo, ...workflow, usage, branch });
       }
     }
     return items;
@@ -214,7 +215,11 @@ class SecretHealthService {
     if (step.conclusion !== 'failure') {
       return { ...detail, status: 'unknown', reason: 'step-not-executed' };
     }
-    const [match] = matchingLines(stepLines(await log(), step), patterns);
+    const source = await log();
+    if (typeof source !== 'string') {
+      return { ...detail, status: 'unknown', reason: source.status };
+    }
+    const [match] = matchingLines(stepLines(source, step), patterns);
     return match
       ? { ...detail, status: 'auth-failing', match }
       : {
@@ -227,7 +232,12 @@ class SecretHealthService {
   async safelyClassify(name, item, run, patterns) {
     try {
       return await this.classify(name, item, run, patterns);
-    } catch {
+    } catch (error) {
+      const unavailable = /\/actions\/runs\/\d+\/jobs(?:\?|$)/.test(
+        error.path ?? ''
+      )
+        ? unavailableLogs(error.status, error.path)
+        : null;
       return [
         {
           repository: repoSlug(item.repo),
@@ -235,7 +245,8 @@ class SecretHealthService {
           runId: run?.id,
           runUrl: run?.html_url,
           status: 'unknown',
-          reason: 'evidence-unreadable',
+          reason: unavailable?.status ?? 'evidence-unreadable',
+          ...(unavailable ? {} : { error: error.message }),
         },
       ];
     }
@@ -245,39 +256,74 @@ class SecretHealthService {
     name = secretName(name);
     const patterns = [...AUTH_PATTERNS, ...(options.failurePatterns ?? [])];
     expressions(patterns);
+    validateRetentionDays(options.retentionDays ?? 90);
     const evidence = [];
-    for (const item of await this.inventory(name, options)) {
-      if (item.unreadable) {
+    const repos = await this.targets(options);
+    for (const [index, repo] of repos.entries()) {
+      this.log?.progress?.(
+        `${index}/${repos.length} repositories: scanning ${repoSlug(repo)}`
+      );
+      try {
+        for (const item of await this.inventory(name, repo, options)) {
+          try {
+            evidence.push(...(await inspect(name, item, patterns)));
+          } catch (error) {
+            evidence.push({
+              repository: repoSlug(repo),
+              workflow: item.file,
+              status: 'unknown',
+              reason: 'repository-error',
+              error: error.message,
+            });
+          }
+        }
+      } catch (error) {
         evidence.push({
-          repository: repoSlug(item.repo),
+          repository: repoSlug(repo),
           status: 'unknown',
           reason: 'workflow-unreadable',
+          error: error.message,
         });
-      } else {
-        evidence.push(...(await inspect(name, item, patterns)));
       }
     }
+    const errors = new Set(
+      evidence.filter((item) => item.error).map((item) => item.repository)
+    ).size;
+    this.log?.progress?.(
+      `${repos.length}/${repos.length} repositories complete; ${errors} repository error(s).`
+    );
     return summary(name, evidence);
   }
 
   async latestRun(item, options) {
     const [run] = await this.runs.list(item.repo, {
       workflow: item.file,
-      branch: options.branch,
+      branch: options.branch ?? item.branch,
       limit: 1,
     });
     return run;
   }
 
   health(name, options = {}) {
-    return this.collect(name, options, async (normalized, item, patterns) =>
-      this.safelyClassify(
-        normalized,
-        item,
-        await this.latestRun(item, options),
-        patterns
-      )
-    );
+    return this.collect(name, options, async (normalized, item, patterns) => {
+      const run = await this.latestRun(item, options);
+      if (
+        run?.status === 'completed' &&
+        expiredRun(run, options.retentionDays ?? 90, this.now ?? Date.now)
+      ) {
+        return [
+          {
+            repository: repoSlug(item.repo),
+            workflow: item.file,
+            runId: run.id,
+            runUrl: run.html_url,
+            status: 'unknown',
+            reason: 'logs-expired',
+          },
+        ];
+      }
+      return this.safelyClassify(normalized, item, run, patterns);
+    });
   }
   async trigger(item, previous, options) {
     const base = `${repoPath(item.repo)}/actions`;
@@ -297,6 +343,7 @@ class SecretHealthService {
     }
     const ref =
       options.branch ??
+      item.branch ??
       (await this.rest.request(repoPath(item.repo))).default_branch;
     const dispatched = await this.rest.request(
       `${base}/workflows/${encodeURIComponent(item.file)}/dispatches`,

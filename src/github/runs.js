@@ -8,6 +8,7 @@ import {
   matchingLines,
 } from './discovery.js';
 import { createRepoManager } from './repos.js';
+import { expiredRun, unavailableLogs, validateRetentionDays } from './logs.js';
 
 function runTarget(run, repo) {
   const url = String(run).match(
@@ -24,7 +25,7 @@ function runTarget(run, repo) {
 }
 
 /** Stable Actions discovery service. Log results contain matched, redacted lines. */
-export function createRunManager({ rest, log } = {}) {
+export function createRunManager({ rest, log, now = Date.now } = {}) {
   const manager = {
     list(target, { workflow, branch, status, event, limit } = {}) {
       const base = `${repoPath(repositoryTarget(target))}/actions`;
@@ -62,8 +63,33 @@ export function createRunManager({ rest, log } = {}) {
       const target = runTarget(run, repo);
       const runUrl = `https://github.com/${repoSlug(target.repo)}/actions/runs/${target.id}`;
       const lines = [];
-      for (const job of await manager.jobs(target.repo, target.id)) {
+      const location = {
+        repository: repoSlug(target.repo),
+        runId: target.id,
+        runUrl,
+      };
+      let jobs;
+      try {
+        jobs = await manager.jobs(target.repo, target.id);
+      } catch (error) {
+        const unavailable = unavailableLogs(error.status, error.path);
+        if (!unavailable) {
+          throw error;
+        }
+        return [{ ...location, ...unavailable, url: runUrl }];
+      }
+      for (const job of jobs) {
         const source = await manager.jobLog(target.repo, job.id);
+        if (typeof source !== 'string') {
+          lines.push({
+            ...location,
+            ...source,
+            url: runUrl,
+            jobId: job.id,
+            job: job.name,
+          });
+          continue;
+        }
         for (const line of matchingLines(source, grep)) {
           lines.push({
             repository: repoSlug(target.repo),
@@ -77,40 +103,132 @@ export function createRunManager({ rest, log } = {}) {
       }
       return lines;
     },
-    async failures({
-      org,
-      grep = [],
-      includeArchived = false,
-      includeForks = false,
-    } = {}) {
-      expressions(grep);
-      const findings = [];
-      const repos = await createRepoManager({ rest, log }).list({
-        org,
-        includeArchived,
-        includeForks,
-      });
-      for (const repo of repos) {
-        const target = repositoryTarget(repo.full_name);
-        const [latest] = await manager.list(target, {
-          branch: repo.default_branch,
-          limit: 1,
-        });
-        if (latest?.conclusion !== 'failure') {
-          continue;
-        }
-        const matches = await manager.logs(latest.id, { repo: target, grep });
-        if (matches.length) {
-          findings.push({
-            repository: repo.full_name,
-            runId: latest.id,
-            runUrl: latest.html_url,
-            matches,
-          });
-        }
-      }
-      return findings;
+    failures(options) {
+      return scanFailures(manager, { rest, log, now }, options);
     },
   };
   return manager;
+}
+
+async function workflowFailure(manager, target, workflow, options) {
+  const { branch, grep, retentionDays, now } = options;
+  const [latest] = await manager.list(target, {
+    workflow: workflow.path ?? String(workflow.id),
+    branch,
+    limit: 1,
+  });
+  if (latest?.conclusion !== 'failure') {
+    return null;
+  }
+  const location = {
+    repository: repoSlug(target),
+    workflow: workflow.path,
+    runId: latest.id,
+    runUrl: latest.html_url,
+  };
+  if (expiredRun(latest, retentionDays, now)) {
+    return {
+      ...location,
+      status: 'unknown',
+      reason: 'logs-expired',
+      matches: [],
+    };
+  }
+  const results = await manager.logs(latest.id, { repo: target, grep });
+  const missing = results.filter((entry) => entry.status);
+  const matches = results.filter((entry) => !entry.status);
+  if (!missing.length && !matches.length) {
+    return null;
+  }
+  return {
+    ...location,
+    status: missing.length ? 'unknown' : 'failure',
+    ...(missing.length
+      ? { reason: missing[0].status, unavailableLogs: missing }
+      : {}),
+    matches,
+  };
+}
+
+async function repositoryWorkflows(rest, repo) {
+  const target = repositoryTarget(repo.full_name);
+  const branch =
+    repo.default_branch ??
+    (await rest.request(repoPath(target))).default_branch;
+  if (!branch) {
+    throw new CliError('GitHub did not return a default branch.');
+  }
+  const workflows = await pages(
+    rest,
+    `${repoPath(target)}/actions/workflows`,
+    'workflows'
+  );
+  return { target, branch, workflows };
+}
+
+async function scanFailures(
+  manager,
+  { rest, log, now },
+  {
+    org,
+    grep = [],
+    includeArchived = false,
+    includeForks = false,
+    retentionDays = 90,
+  } = {}
+) {
+  expressions(grep);
+  validateRetentionDays(retentionDays);
+  const findings = [];
+  const repos = await createRepoManager({ rest, log }).list({
+    org,
+    includeArchived,
+    includeForks,
+  });
+  for (const [index, repo] of repos.entries()) {
+    log?.progress?.(
+      `${index}/${repos.length} repositories: scanning ${repo.full_name}`
+    );
+    try {
+      const { target, branch, workflows } = await repositoryWorkflows(
+        rest,
+        repo
+      );
+      for (const workflow of workflows) {
+        try {
+          const finding = await workflowFailure(manager, target, workflow, {
+            branch,
+            grep,
+            retentionDays,
+            now,
+          });
+          if (finding) {
+            findings.push(finding);
+          }
+        } catch (error) {
+          findings.push({
+            repository: repo.full_name,
+            workflow: workflow.path,
+            status: 'unknown',
+            reason: 'repository-error',
+            error: error.message,
+          });
+        }
+      }
+    } catch (error) {
+      findings.push({
+        repository: repo.full_name,
+        status: 'unknown',
+        reason: 'repository-error',
+        error: error.message,
+      });
+    }
+  }
+  const errors = new Set(
+    findings.filter((entry) => entry.error).map((entry) => entry.repository)
+  ).size;
+  log?.progress?.(
+    `${repos.length}/${repos.length} repositories complete; ${errors} repository error(s).`
+  );
+  return findings;
 }
