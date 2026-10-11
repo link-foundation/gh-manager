@@ -9,6 +9,7 @@
  */
 
 import { URL } from 'node:url';
+import { unavailableLogs } from './logs.js';
 
 const API_BASE_URL = 'https://api.github.com';
 const PER_PAGE = 100;
@@ -182,7 +183,19 @@ export function createRestClient({
           );
         }
         // Signed download URLs authorize themselves; never forward the API token.
-        response = await fetchImpl(url.href, { redirect: 'error' });
+        try {
+          response = await fetchImpl(url.href, { redirect: 'error' });
+        } catch {
+          // Network errors can contain the signed URL; scans expose the message.
+          throw new GitHubApiError('GitHub log download failed.', {
+            status: 0,
+            path: apiPath,
+          });
+        }
+      }
+      const unavailable = unavailableLogs(response.status, apiPath);
+      if (unavailable) {
+        return unavailable;
       }
       if (!response.ok) {
         throw new GitHubApiError(`GitHub log download ${response.status}`, {

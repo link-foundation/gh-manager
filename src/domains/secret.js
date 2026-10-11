@@ -239,6 +239,7 @@ function healthOptions(context) {
     ...settings(context),
     scope,
     branch: context.flags.branch,
+    retentionDays: context.flags.retentionDays,
     ...(context.flags.timeout !== undefined
       ? { timeout: context.flags.timeout * 1000 }
       : {}),
@@ -355,7 +356,7 @@ export const secretDomain = {
     'gh-manager secret delete NAME --repo owner/repo [--dry-run] [--yes]',
     'gh-manager secret audit --org <org> [--repo <repo>]',
     'gh-manager secret cleanup NAME... --repo owner/repo --reason <text> --validator ./validator.mjs [--dry-run] [--yes]',
-    'gh-manager secret health NAME --org <org> | --repo owner/repo [--failure-pattern <regex>]...',
+    'gh-manager secret health NAME --org <org> | --repo owner/repo [--failure-pattern <regex>]... [--retention-days 90]',
     'gh-manager secret test NAME --org <org> | --repo owner/repo [--input name=value] [--timeout seconds]',
     'gh-manager secret setup-app --org <org> [--app-id ID --repos a,b < app-key.pem]',
     '',

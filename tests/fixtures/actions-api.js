@@ -114,6 +114,8 @@ function defaultRoute(path, { source, noRuns, run, job, log }) {
     };
   } else if (path.endsWith('/workflows/release.yml')) {
     body = { id: 7, state: 'active' };
+  } else if (path.endsWith('/actions/workflows')) {
+    body = { workflows: [{ id: 7, path: '.github/workflows/release.yml' }] };
   } else if (path.endsWith('/runs')) {
     body = { workflow_runs: noRuns ? [] : [run] };
   } else if (path.endsWith('/runs/1')) {

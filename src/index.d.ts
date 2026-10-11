@@ -338,6 +338,13 @@ export declare class GitHubApiError extends Error {
   path: string;
 }
 
+/** Logs may be expired (410) or absent/deleted (404). No signed URLs are returned. */
+export interface UnavailableLogs {
+  status: 'logs-expired' | 'logs-unavailable';
+  httpStatus: 404 | 410;
+  path: string;
+}
+
 /** The subset of the GitHub API gh-manager reads. */
 export interface RestClient {
   hasToken: boolean;
@@ -349,7 +356,7 @@ export interface RestClient {
     path: string,
     options?: { method?: string; body?: unknown }
   ) => Promise<{ status: number; ok: boolean; body: unknown }>;
-  text: (path: string) => Promise<string>;
+  text: (path: string) => Promise<string | UnavailableLogs>;
   listPackages: (options: {
     owner: PackageOwner;
     packageType: string;
@@ -603,7 +610,12 @@ export declare function githubAppPlan(org: string): {
 /** Stable GitHub discovery API, available from the package entry. */
 export interface GitHubServiceOptions {
   rest: RestClient;
-  log?: { debug: (message: string) => void };
+  log?: {
+    debug: (message: string) => void;
+    /** Scan progress and summaries; the CLI writes these to stderr. */
+    progress?: (message: string) => void;
+  };
+  now?: () => number;
 }
 export interface RepositoryInfo {
   id?: number;
@@ -646,6 +658,8 @@ export interface WorkflowRun {
   head_sha?: string;
   path?: string;
   html_url: string;
+  created_at?: string;
+  updated_at?: string;
 }
 export interface WorkflowStep {
   name: string;
@@ -682,9 +696,30 @@ export interface RunLogMatch extends LogMatch {
 }
 export interface RunFailure {
   repository: string;
+  workflow?: string;
+  status: 'failure';
   runId: number;
   runUrl: string;
   matches: RunLogMatch[];
+}
+export interface RunLogsUnavailable extends UnavailableLogs {
+  repository: string;
+  runId: number;
+  runUrl: string;
+  url: string;
+  jobId?: number;
+  job?: string;
+}
+export interface RunUnknown {
+  repository: string;
+  workflow?: string;
+  status: 'unknown';
+  reason: 'logs-expired' | 'logs-unavailable' | 'repository-error';
+  runId?: number;
+  runUrl?: string;
+  matches?: RunLogMatch[];
+  unavailableLogs?: RunLogsUnavailable[];
+  error?: string;
 }
 export interface RunManager {
   list(
@@ -694,17 +729,22 @@ export interface RunManager {
   get(repo: Repository | string, id: number): Promise<WorkflowRun>;
   jobs(repo: Repository | string, id: number): Promise<WorkflowJob[]>;
   /** Unfiltered GitHub-masked log text for callers implementing classification. */
-  jobLog(repo: Repository | string, id: number): Promise<string>;
+  jobLog(
+    repo: Repository | string,
+    id: number
+  ): Promise<string | UnavailableLogs>;
   logs(
     run: number | string,
     options?: { repo?: Repository | string; grep?: string[] }
-  ): Promise<RunLogMatch[]>;
+  ): Promise<Array<RunLogMatch | RunLogsUnavailable>>;
   failures(options: {
     org: string;
     grep?: string[];
     includeArchived?: boolean;
     includeForks?: boolean;
-  }): Promise<RunFailure[]>;
+    /** Skip older log evidence; defaults to 90 days. */
+    retentionDays?: number;
+  }): Promise<Array<RunFailure | RunUnknown>>;
 }
 export declare function createRunManager(
   options: GitHubServiceOptions
@@ -716,6 +756,7 @@ export interface SecretHealthEvidence {
   workflow?: string;
   status: SecretHealthStatus;
   reason?: string;
+  error?: string;
   runId?: number;
   runUrl?: string;
   jobId?: number;
@@ -734,6 +775,8 @@ export interface SecretHealthOptions {
   repos?: string[];
   branch?: string;
   failurePatterns?: string[];
+  /** Skip older log evidence; defaults to 90 days. */
+  retentionDays?: number;
   /** Workflow test inputs; durations are milliseconds. */
   inputs?: Record<string, string | boolean | number>;
   timeout?: number;

@@ -30,6 +30,7 @@ export const FLAG_SPECS = {
   'include-forks': { key: 'includeForks', type: 'boolean' },
   workflow: { key: 'workflow', type: 'string' },
   branch: { key: 'branch', type: 'string' },
+  'retention-days': { key: 'retentionDays', type: 'number' },
   status: { key: 'status', type: 'string' },
   grep: { key: 'grep', type: 'string', multiple: true },
   input: { key: 'inputs', type: 'string', multiple: true },

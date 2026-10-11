@@ -86,6 +86,7 @@ const runVerbs = {
           grep: context.flags.grep,
           includeArchived: context.flags.includeArchived,
           includeForks: context.flags.includeForks,
+          retentionDays: context.flags.retentionDays,
         }
       )
     );
@@ -116,7 +117,7 @@ export const runsDomain = {
   usage: [
     'gh-manager runs list owner/repo [--workflow <file>] [--branch main] [--status failure]',
     'gh-manager runs logs <run-url> | <run-id> --repo owner/repo [--grep <regex>]...',
-    'gh-manager runs failures --org <org> --grep <regex>...',
+    'gh-manager runs failures --org <org> --grep <regex>... [--retention-days 90]',
   ],
   verbs: verbs(runVerbs),
 };

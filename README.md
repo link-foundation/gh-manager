@@ -328,7 +328,7 @@ gh-manager secret get-metadata CUSTOM_TOKEN --org link-foundation
 gh-manager secret set CUSTOM_TOKEN --repo link-foundation/project < token.txt
 gh-manager secret set CUSTOM_TOKEN --repo link-foundation/project --env production < token.txt
 
-# Inspect the latest runs of workflows referencing this name.
+# Inspect the latest default-branch runs of workflows referencing this name.
 gh-manager secret health CUSTOM_TOKEN --org link-foundation --failure-pattern 'CUSTOM_AUTH_ERROR' --json
 gh-manager secret health CUSTOM_TOKEN --repo link-foundation/project --json
 # Dispatch a workflow, or rerun its latest run, wait, then classify the evidence.
@@ -345,6 +345,10 @@ gh-manager secret cleanup OLD_TOKEN --repo link-foundation/project --reason 'Cal
 `ensure` leaves existing secrets unchanged when health is `ok` or `unknown`, unless a caller validator or recorded expiry establishes that replacement is needed. Organization ensure uses `selected` visibility and `--repos`; on organization permission, plan or personal-account refusal it reports `path: "repository"`, a fallback reason, and one result per repository. Explicit `set` overwrites the chosen scope. Repository secrets override organization secrets with the same name.
 
 Health returns `ok`, `auth-failing` or `unknown`, plus workflow/job/step evidence. Only a failed step that uses the secret and has a matching log line is `auth-failing`; generic patterns include 401, 403, unauthorized, bad credentials, expired and invalid token. Successful secret steps can be `ok` even when unrelated steps fail. No runs, skipped steps, unresolved names, unreadable evidence and non-authentication failures are `unknown`. Static dot and bracket references are supported; dynamic references and reusable workflow internals require separate inspection. Logs are GitHub-masked and additionally redact common credential forms.
+
+Health selects the latest run of each referencing workflow on the repository's default branch; `--branch` overrides that selection. Expired logs (HTTP 410) produce `unknown` evidence with `reason: "logs-expired"`; absent/deleted logs (HTTP 404) use `reason: "logs-unavailable"`. Runs older than 90 days are reported as expired without fetching jobs or logs. Set `--retention-days` (or library option `retentionDays`) to your repository/organization retention period. A recent rerun uses its updated timestamp. Missing timestamps leave availability to the API. GitHub's [log retention settings](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/remove-workflow-artifacts#setting-the-retention-period-for-an-artifact) can differ between repositories.
+
+Organization health and failure scans continue after repository errors. JSON results include each affected repository's `error` and `unknown` status, alongside available evidence. Progress (`n/total repositories`) and a repository-error count go to stderr, keeping stdout parseable under `--json`. An organization inventory failure still raises an error because there is no repository list to scan.
 
 `secret test` uses `workflow_dispatch` when supported, otherwise reruns the last run. `--input name=value` supplies dispatch inputs. Polling is bounded by `--timeout` (seconds); a timeout returns `unknown` evidence. A rerun must have a newer attempt before its result is accepted. Health/testing operate on organization/repository scope, not environment-specific secret attribution.
 
@@ -375,7 +379,9 @@ gh-manager runs logs 123 --repo link-foundation/project --grep 'CALLER_ERROR'
 gh-manager runs failures --org link-foundation --grep 'CALLER_ERROR' --json
 ```
 
-Repository listing omits archived repositories and forks by default. File globs support `*`, `?` and `**`; content is read by immutable blob SHA, with subtree traversal when GitHub truncates a recursive tree. Run listing follows pagination. `runs failures` inspects the latest default-branch run before checking failure logs, so a recovered repository is not reported from an older failure.
+Repository listing omits archived repositories and forks by default. File globs support `*`, `?` and `**`; content is read by immutable blob SHA, with subtree traversal when GitHub truncates a recursive tree. Run listing follows pagination. `runs failures` inspects the latest default-branch run of each workflow before checking failure logs, so a recovered workflow is not reported from an older failure. It shares health's `--retention-days` cutoff. Findings distinguish `status: "failure"` with matching evidence from `status: "unknown"` with an unavailable-log reason or repository error; available matches are retained even when another job's log is unavailable.
+
+`runs logs` keeps its array of matched lines and includes typed `{ status: "logs-expired" | "logs-unavailable", runId, url, ... }` entries for unavailable logs. Library `rest.text` and `runs.jobLog` return a string on success or `{ status, httpStatus, path }` for HTTP 404/410; callers should narrow the result before parsing text. Authentication, rate-limit and server errors remain errors and are collected by bulk scans. Signed download URLs and API tokens never appear in unavailable-log results.
 
 ### Stable library API
 
