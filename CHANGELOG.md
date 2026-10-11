@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+
+### Patch Changes
+
+- d11a42b: CI: preview image regeneration waits for the example app's
+  `#matcher-title` heading instead of the template's `#calculator-title`, and
+  the preview images show the current app.
+
 ## 1.0.0
 
 ### Major Changes
