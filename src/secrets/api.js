@@ -104,13 +104,29 @@ class SecretApi {
     rest,
     scope,
     log,
+    recoverOrganizationAuth,
     verificationTimeout = VERIFICATION_TIMEOUT_MS,
   }) {
     Object.assign(
       this,
-      { rest, scope, log, verificationTimeout },
+      { rest, scope, log, verificationTimeout, recoverOrganizationAuth },
       scopePaths(scope)
     );
+  }
+  async sendWithRecovery(path, options) {
+    let result = await this.rest.send(path, options);
+    if (
+      result.status === 403 &&
+      this.scope.org &&
+      this.recoverOrganizationAuth
+    ) {
+      const refreshed = await this.recoverOrganizationAuth();
+      if (refreshed) {
+        this.rest = refreshed;
+        result = await this.rest.send(path, options);
+      }
+    }
+    return result;
   }
   async send(path, options = {}, allowNotFound = false) {
     if (!this.rest.hasToken) {
@@ -122,7 +138,7 @@ class SecretApi {
     this.log?.debug(`secrets API: ${options.method ?? 'GET'} ${path}`);
     let result;
     try {
-      result = await this.rest.send(path, options);
+      result = await this.sendWithRecovery(path, options);
     } catch {
       throw new CliError(
         'GitHub secrets request failed; no token value was logged.'

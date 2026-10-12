@@ -2,20 +2,7 @@ import { CliError, EXIT_CODES } from '../exit-codes.js';
 import { createSecretApi, secretName } from './api.js';
 import { selectedTargets } from '../github/discovery.js';
 import { createSecretHealth } from './health.js';
-
-function normalizedExpiry(value) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  const instant = Date.parse(value);
-  if (typeof value !== 'string' || !Number.isFinite(instant)) {
-    throw new CliError(
-      'Token expiry must be an ISO date string.',
-      EXIT_CODES.USAGE
-    );
-  }
-  return new Date(instant).toISOString();
-}
+import { normalizedExpiry, expiryReason, rotationWindow } from './expiry.js';
 
 // Callback errors may include credentials. Do not retain their cause or stack.
 async function callCallback(callback, input, label) {
@@ -26,28 +13,6 @@ async function callCallback(callback, input, label) {
       `Secret ${label} callback failed; values were withheld.`
     );
   }
-}
-
-function expiryReason(expiresAt, now, window) {
-  if (!expiresAt) {
-    return null;
-  }
-  const deadline = Date.parse(expiresAt);
-  if (deadline <= now) {
-    return 'expired';
-  }
-  return deadline <= now + window ? 'expiring' : null;
-}
-
-function rotationWindow(settings) {
-  const window = settings.rotateBeforeMs ?? 7 * 24 * 60 * 60 * 1000;
-  if (!Number.isFinite(window) || window < 0) {
-    throw new CliError(
-      'Rotation window must be a nonnegative duration.',
-      EXIT_CODES.USAGE
-    );
-  }
-  return window;
 }
 
 function preserveAccess(scope, metadata, settings) {
@@ -150,6 +115,12 @@ class SecretManager {
     if (health?.status === 'auth-failing') {
       return { reason: settings.reason ?? 'auth-failing', expiresAt };
     }
+    if (['expired', 'expiring'].includes(health?.status)) {
+      return {
+        reason: health.status,
+        expiresAt: normalizedExpiry(health.expiresAt ?? expiresAt),
+      };
+    }
     return {
       reason: expiryReason(expiresAt, this.now(), window),
       expiresAt,
@@ -167,7 +138,10 @@ class SecretManager {
       !this.scope.environment
     ) {
       try {
-        health = await createSecretHealth(this.options).health(name, {
+        health = await createSecretHealth({
+          ...this.options,
+          rest: this.api.rest,
+        }).health(name, {
           scope: this.scope,
           repos: settings.repos,
           failurePatterns: settings.failurePatterns,
@@ -292,7 +266,11 @@ class SecretManager {
     const revocations = [];
     for (const repo of repositories) {
       const scope = { repo };
-      const manager = new SecretManager({ ...this.options, scope });
+      const manager = new SecretManager({
+        ...this.options,
+        rest: this.api.rest,
+        scope,
+      });
       results.push({
         ...(await manager.ensureScoped(name, {
           ...settings,

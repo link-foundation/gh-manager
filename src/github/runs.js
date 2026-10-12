@@ -9,6 +9,7 @@ import {
 } from './discovery.js';
 import { createRepoManager } from './repos.js';
 import { expiredRun, unavailableLogs, validateRetentionDays } from './logs.js';
+import { failureReport } from './failure-report.js';
 
 function runTarget(run, repo) {
   const url = String(run).match(
@@ -103,8 +104,17 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
       }
       return lines;
     },
-    failures(options) {
-      return scanFailures(manager, { rest, log, now }, options);
+    async failures(options) {
+      return (await scanFailures(manager, { rest, log, now }, options))
+        .findings;
+    },
+    async failureReport(options) {
+      const { findings, repos } = await scanFailures(
+        manager,
+        { rest, log, now },
+        options
+      );
+      return failureReport(findings, repos);
     },
   };
   return manager;
@@ -230,5 +240,5 @@ async function scanFailures(
   log?.progress?.(
     `${repos.length}/${repos.length} repositories complete; ${errors} repository error(s).`
   );
-  return findings;
+  return { findings, repos };
 }

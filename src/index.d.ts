@@ -495,7 +495,7 @@ export interface SecretCallbackContext {
 export interface SecretEnsureOptions extends SecretOptions {
   /** Disable organization-to-repository fallback explicitly. Default: enabled with repos. */
   fallback?: boolean;
-  health?: { status: SecretHealthStatus };
+  health?: { status: SecretHealthStatus; expiresAt?: string | null };
   failurePatterns?: string[];
   /** Default: seven days. */
   rotateBeforeMs?: number;
@@ -575,6 +575,8 @@ export declare function createSecretManager(options: {
   log?: { debug: (message: string) => void };
   verificationTimeout?: number;
   now?: () => number;
+  /** Recover a denied organization request and return a client using the refreshed login. */
+  recoverOrganizationAuth?: () => Promise<RestClient | null>;
 }): SecretManager;
 
 export interface SecretAuditReference {
@@ -660,6 +662,7 @@ export interface WorkflowRun {
   html_url: string;
   created_at?: string;
   updated_at?: string;
+  referenced_workflows?: { path: string; sha: string; ref?: string }[];
 }
 export interface WorkflowStep {
   name: string;
@@ -721,6 +724,31 @@ export interface RunUnknown {
   unavailableLogs?: RunLogsUnavailable[];
   error?: string;
 }
+export interface RunFailureScanOptions {
+  org: string;
+  grep?: string[];
+  includeArchived?: boolean;
+  includeForks?: boolean;
+  /** Skip older log evidence; defaults to 90 days. */
+  retentionDays?: number;
+}
+export interface RunFailureReport {
+  matches: RunFailure[];
+  /** Counts unavailable job logs, or one count for an unavailable/expired run. */
+  unavailableLogs: {
+    repository: string;
+    reason: 'logs-expired' | 'logs-unavailable';
+    count: number;
+  }[];
+  errors: RunUnknown[];
+  repositories: {
+    repository: string;
+    /** Number of matching log lines. */
+    matches: number;
+    unavailableLogs: number;
+    errors: number;
+  }[];
+}
 export interface RunManager {
   list(
     repo: Repository | string,
@@ -737,20 +765,23 @@ export interface RunManager {
     run: number | string,
     options?: { repo?: Repository | string; grep?: string[] }
   ): Promise<Array<RunLogMatch | RunLogsUnavailable>>;
-  failures(options: {
-    org: string;
-    grep?: string[];
-    includeArchived?: boolean;
-    includeForks?: boolean;
-    /** Skip older log evidence; defaults to 90 days. */
-    retentionDays?: number;
-  }): Promise<Array<RunFailure | RunUnknown>>;
+  /** Detailed results retained for existing library consumers. */
+  failures(
+    options: RunFailureScanOptions
+  ): Promise<Array<RunFailure | RunUnknown>>;
+  /** Compact report used by runs failures CLI output. */
+  failureReport(options: RunFailureScanOptions): Promise<RunFailureReport>;
 }
 export declare function createRunManager(
   options: GitHubServiceOptions
 ): RunManager;
 
-export type SecretHealthStatus = 'ok' | 'auth-failing' | 'unknown';
+export type SecretHealthStatus =
+  | 'ok'
+  | 'auth-failing'
+  | 'unknown'
+  | 'expiring'
+  | 'expired';
 export interface SecretHealthEvidence {
   repository: string;
   workflow?: string;
@@ -769,6 +800,14 @@ export interface SecretHealthResult {
   name: string;
   status: SecretHealthStatus;
   evidence: SecretHealthEvidence[];
+  expiresAt: string | null;
+  expiry: {
+    status: 'valid' | 'expiring' | 'expired' | 'unknown';
+    expiresAt?: string;
+    scope?: SecretScope;
+    reason?: 'expiry-absent' | 'expiry-invalid' | 'expiry-unreadable';
+  };
+  warnings: string[];
 }
 export interface SecretHealthOptions {
   scope: SecretScope;
@@ -777,6 +816,8 @@ export interface SecretHealthOptions {
   failurePatterns?: string[];
   /** Skip older log evidence; defaults to 90 days. */
   retentionDays?: number;
+  /** Expiry warning window; defaults to seven days. */
+  rotateBeforeMs?: number;
   /** Workflow test inputs; durations are milliseconds. */
   inputs?: Record<string, string | boolean | number>;
   timeout?: number;

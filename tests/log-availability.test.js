@@ -272,7 +272,7 @@ describe('bulk scan reporting', () => {
         api
       );
       const parsed = JSON.parse(result.output);
-      expect((Array.isArray(parsed) ? parsed : parsed.evidence)[0].reason).toBe(
+      expect((parsed.unavailableLogs ?? parsed.evidence)[0].reason).toBe(
         'logs-expired'
       );
       expect(result.errors).toContain('2/2 repositories');
@@ -288,9 +288,9 @@ describe('bulk scan reporting', () => {
       );
       const findings = JSON.parse(result.output);
       expect(result.code).toBe(0);
-      expect(findings[0].status).toBe('unknown');
-      expect(findings[0].error).toContain(String(status));
-      expect(findings[1].repository).toBe('acme/two');
+      expect(findings.errors[0].status).toBe('unknown');
+      expect(findings.errors[0].error).toContain(String(status));
+      expect(findings.matches[0].repository).toBe('acme/two');
       expect(result.errors).toContain('0/2 repositories');
       expect(result.errors).toContain('2/2 repositories');
       expect(result.errors).toContain('1 repository error');

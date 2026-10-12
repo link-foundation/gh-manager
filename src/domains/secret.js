@@ -7,7 +7,7 @@ import { auditWorkflows } from '../secrets/audit.js';
 import { githubAppPlan } from '../secrets/policy.js';
 import { createSecretHealth } from '../secrets/health.js';
 
-function target(context, { filter = false } = {}) {
+function target(context, { filter = false, recoverOrganizationAuth } = {}) {
   const { org, repo, environment } = context.flags;
   if (environment !== undefined && !repo) {
     throw new CliError('--env requires --repo.', EXIT_CODES.USAGE);
@@ -40,6 +40,7 @@ function target(context, { filter = false } = {}) {
     rest: context.rest,
     scope,
     log: context.log,
+    recoverOrganizationAuth,
   });
   return { scope, manager, parsed };
 }
@@ -145,7 +146,9 @@ async function getMetadata(context) {
 
 async function set(context) {
   requireCount(context, 1);
-  const { manager } = target(context);
+  const { manager } = target(context, {
+    recoverOrganizationAuth: () => context.recoverOrganizationAuth(),
+  });
   const options = settings(context);
   if (options.dryRun) {
     output(context, await manager.set(context.targets[0], undefined, options));
@@ -164,7 +167,9 @@ async function set(context) {
 
 async function ensure(context) {
   requireCount(context, 1);
-  const { manager } = target(context);
+  const { manager } = target(context, {
+    recoverOrganizationAuth: () => context.recoverOrganizationAuth(),
+  });
   const callbacks = context.flags.dryRun ? {} : await validator(context);
   output(
     context,
@@ -320,7 +325,9 @@ async function audit(context) {
 
 async function setupApp(context) {
   requireCount(context, 0);
-  const { scope, manager } = target(context);
+  const { scope, manager } = target(context, {
+    recoverOrganizationAuth: () => context.recoverOrganizationAuth(),
+  });
   const plan = githubAppPlan(scope.org ?? scope.repo.owner);
   if (!context.flags.appId || context.flags.dryRun) {
     output(context, plan);
