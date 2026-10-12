@@ -80,15 +80,16 @@ const runVerbs = {
     count(context, 0);
     output(
       context,
-      await createRunManager({ rest: context.rest, log: context.log }).failures(
-        {
-          org: context.flags.org,
-          grep: context.flags.grep,
-          includeArchived: context.flags.includeArchived,
-          includeForks: context.flags.includeForks,
-          retentionDays: context.flags.retentionDays,
-        }
-      )
+      await createRunManager({
+        rest: context.rest,
+        log: context.log,
+      }).failureReport({
+        org: context.flags.org,
+        grep: context.flags.grep,
+        includeArchived: context.flags.includeArchived,
+        includeForks: context.flags.includeForks,
+        retentionDays: context.flags.retentionDays,
+      })
     );
   },
 };

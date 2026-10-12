@@ -9,7 +9,7 @@
 import { openBrowserSession } from '../browser/session.js';
 import { ensureAppDir, resolveOwner, resolveSettings } from '../config.js';
 import { createRestClient } from '../github/rest.js';
-import { resolveToken } from '../github/token.js';
+import { resolveToken, refreshGhCliToken } from '../github/token.js';
 import { createLogger } from '../logging.js';
 import { createPackageGateway } from '../packages/gateway.js';
 import { createSecurityGateway } from '../security/gateway.js';
@@ -54,6 +54,7 @@ export function createRunContext({
   let sessionPromise = null;
   let gateway = null;
   const securityGateways = new Map();
+  let authRefreshAttempted = false;
 
   /**
    * Open the browser session, or return the one this run already opened.
@@ -76,6 +77,32 @@ export function createRunContext({
     rest,
     token,
     getSession,
+    async recoverOrganizationAuth() {
+      if (
+        authRefreshAttempted ||
+        flags.dryRun ||
+        token.source !== 'gh auth token'
+      ) {
+        return null;
+      }
+      authRefreshAttempted = true;
+      log.debug(
+        'Organization secrets denied; attempting gh auth refresh -h github.com -s admin:org.'
+      );
+      let refreshed;
+      try {
+        refreshed = await (deps.refreshGhAuth ?? refreshGhCliToken)();
+      } catch {
+        // Authentication transport errors can contain credentials.
+        return null;
+      }
+      if (!refreshed) {
+        return null;
+      }
+      token.token = refreshed;
+      this.rest = (deps.createRest ?? createRestClient)({ token: refreshed });
+      return this.rest;
+    },
     readSecret:
       deps.readSecret ??
       (async () => {

@@ -16,7 +16,9 @@ import {
 } from '../github/logs.js';
 import { pollUntil } from '../verification.js';
 import { secretName } from './api.js';
-import { workflowFiles, workflowUsage, workflowSource } from './workflows.js';
+import { workflowFiles, workflowSource } from './workflows.js';
+import { resolvedWorkflowUsage } from './reusable.js';
+import { healthExpiry, rotationWindow } from './expiry.js';
 
 const AUTH_PATTERNS = [
   '\\b401\\b',
@@ -34,6 +36,45 @@ function summary(name, evidence) {
       ? 'ok'
       : 'unknown';
   return { name, status, evidence };
+}
+
+function withExpiry(result, expiry, log) {
+  const warnings =
+    expiry.status === 'unknown' && expiry.scope?.org
+      ? [
+          expiry.reason === 'expiry-absent'
+            ? `Expiry unknown; record it with secret set ${result.name} --org ${expiry.scope.org} --expires-at <ISO-date>.`
+            : `Expiry unknown: ${expiry.reason} for ${result.name}_EXPIRES_AT.`,
+        ]
+      : [];
+  for (const warning of warnings) {
+    log?.progress?.(warning);
+  }
+  return {
+    ...result,
+    status:
+      expiry.status === 'expired'
+        ? 'expired'
+        : result.status === 'auth-failing'
+          ? 'auth-failing'
+          : expiry.status === 'expiring'
+            ? 'expiring'
+            : result.status,
+    expiresAt: expiry.expiresAt ?? null,
+    expiry,
+    warnings,
+  };
+}
+
+function unresolvedReason(definition, jobs) {
+  const skipped = definition.callers?.some((caller) =>
+    jobs.some(
+      (job) => matchesName(caller, job.name) && job.conclusion === 'skipped'
+    )
+  );
+  return skipped
+    ? 'workflow-call-not-executed'
+    : (definition.unresolvedReason ?? 'job-use-unresolved');
 }
 
 function matchesName(pattern, actual) {
@@ -101,7 +142,14 @@ class SecretHealthService {
       throw new CliError('GitHub did not return a default branch.');
     }
     for (const workflow of await workflowFiles(this.rest, repo, branch)) {
-      const usage = workflowUsage(workflow.source, name);
+      const usage = await resolvedWorkflowUsage({
+        rest: this.rest,
+        repo,
+        ...workflow,
+        ref: branch,
+        name,
+        log: this.log,
+      });
       if (usage.jobs.length) {
         items.push({ repo, ...workflow, usage, branch });
       }
@@ -124,10 +172,22 @@ class SecretHealthService {
     }
     let usage = item.usage;
     if (run.head_sha) {
-      usage = workflowUsage(
-        await workflowSource(this.rest, item.repo, item.file, run.head_sha),
-        name
-      );
+      usage = await resolvedWorkflowUsage({
+        rest: this.rest,
+        repo: item.repo,
+        file: item.file,
+        ref: run.head_sha,
+        source: await workflowSource(
+          this.rest,
+          item.repo,
+          item.file,
+          run.head_sha
+        ),
+        name,
+        recorded: run.referenced_workflows,
+        pinned: true,
+        log: this.log,
+      });
     }
     const jobs = await this.runs.jobs(item.repo, run.id);
     const evidence = [];
@@ -140,12 +200,17 @@ class SecretHealthService {
           usage.jobNames.filter((name) => matchesName(name, job.name))
             .length !== 1
       );
-      if (!matching.length || definition.reusable || ambiguous) {
+      if (
+        !matching.length ||
+        definition.reusable ||
+        ambiguous ||
+        (definition.called && !run.head_sha)
+      ) {
         evidence.push({
           ...location,
           job: definition.name,
           status: 'unknown',
-          reason: 'job-use-unresolved',
+          reason: unresolvedReason(definition, jobs),
         });
         continue;
       }
@@ -162,6 +227,17 @@ class SecretHealthService {
   }
 
   async classifyJob(item, definition, job, location, patterns) {
+    if (job.conclusion === 'skipped' || job.conclusion === 'cancelled') {
+      return [
+        {
+          ...location,
+          job: job.name,
+          jobId: job.id,
+          status: 'unknown',
+          reason: 'job-not-executed',
+        },
+      ];
+    }
     if (!definition.steps.length) {
       return [
         {
@@ -257,6 +333,7 @@ class SecretHealthService {
     const patterns = [...AUTH_PATTERNS, ...(options.failurePatterns ?? [])];
     expressions(patterns);
     validateRetentionDays(options.retentionDays ?? 90);
+    rotationWindow(options);
     const evidence = [];
     const repos = await this.targets(options);
     for (const [index, repo] of repos.entries()) {
@@ -292,7 +369,14 @@ class SecretHealthService {
     this.log?.progress?.(
       `${repos.length}/${repos.length} repositories complete; ${errors} repository error(s).`
     );
-    return summary(name, evidence);
+    const result = summary(name, evidence);
+    const expiry = await healthExpiry(
+      this.rest,
+      name,
+      options,
+      this.now ?? Date.now
+    );
+    return withExpiry(result, expiry, this.log);
   }
 
   async latestRun(item, options) {

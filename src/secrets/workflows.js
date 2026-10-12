@@ -2,12 +2,12 @@ import { parseDocument } from 'yaml';
 import { CliError } from '../exit-codes.js';
 import { repoPath } from '../github/rest.js';
 
-function hasReference(value, name) {
+export function hasReference(value, name) {
   if (typeof value === 'string') {
     const reference =
       /\bsecrets\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\])/g;
-    return [...value.matchAll(reference)].some(
-      (match) => (match[1] ?? match[2]).toUpperCase() === name
+    return [...value.matchAll(reference)].some((match) =>
+      [name].flat().includes((match[1] ?? match[2]).toUpperCase())
     );
   }
   return (
@@ -51,8 +51,7 @@ function selectedSteps(workflow, job, name) {
   });
 }
 
-/** Static references only; dynamic/reusable invocations cannot prove use. */
-export function workflowUsage(source, name) {
+export function workflowDocument(source) {
   const document = parseDocument(source);
   if (document.errors.length) {
     throw new CliError('Unreadable workflow YAML.');
@@ -61,6 +60,12 @@ export function workflowUsage(source, name) {
   if (!workflow || typeof workflow !== 'object') {
     throw new CliError('Unreadable workflow YAML.');
   }
+  return workflow;
+}
+
+/** Static references and environment aliases in a single workflow. */
+export function workflowUsage(source, name) {
+  const workflow = workflowDocument(source);
   const dispatch = supportsDispatch(workflow.on);
   const jobs = [];
   const jobNames = [];

@@ -5,7 +5,7 @@ import {
   resolveToken,
 } from '../src/index.js';
 
-// The caller owns issuance and revocation. GitHub logs establish health;
+// The caller owns issuance and revocation. Dates and GitHub logs establish health;
 // gh-manager only stores the caller's custom name and in-memory value.
 export async function ensurePublishingSecret({
   name,

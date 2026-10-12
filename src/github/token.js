@@ -7,7 +7,7 @@
  * when present so there is nothing extra to set up.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 /** Environment variables checked, in order, before falling back to `gh`. */
 export const TOKEN_ENVIRONMENT_VARIABLES = [
@@ -31,6 +31,29 @@ function readGhCliToken() {
   } catch {
     return null;
   }
+}
+
+/** Refresh only an interactive gh login; authentication prompts go to stderr. */
+export async function refreshGhCliToken({
+  interactive = Boolean(process.stderr.isTTY),
+  spawnCommand = spawn,
+  readCliToken = readGhCliToken,
+} = {}) {
+  if (!interactive) {
+    return null;
+  }
+  const succeeded = await new Promise((resolve) => {
+    const child = spawnCommand(
+      'gh',
+      ['auth', 'refresh', '-h', 'github.com', '-s', 'admin:org'],
+      {
+        stdio: ['inherit', 2, 2],
+      }
+    );
+    child.on('error', () => resolve(false));
+    child.on('close', (code) => resolve(code === 0));
+  });
+  return succeeded ? readCliToken() : null;
 }
 
 /**

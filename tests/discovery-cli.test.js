@@ -101,7 +101,7 @@ describe('discovery and health CLI', () => {
       ['runs', 'failures', '--org', 'acme', '--grep', 'unauthorized'],
       api
     );
-    expect(JSON.parse(failures.output)[0].repository).toBe('acme/one');
+    expect(JSON.parse(failures.output).matches[0].repository).toBe('acme/one');
   });
 });
 
