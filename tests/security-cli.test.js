@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'test-anywhere';
 
+import { SECURITY_FEATURE_IDS } from '../src/security/features.js';
 import { EXIT_CODES } from '../src/exit-codes.js';
 import { runCommand } from './fixtures/cli-runner.js';
 import { securityGitHub } from './fixtures/github-security-pages.js';
@@ -28,7 +29,7 @@ function run(argv, options = {}) {
 }
 
 describe('gh-manager security status', () => {
-  it('reports every toggle from the API without opening a browser', async () => {
+  it('reports API toggles and reads page-only rows in one browser session', async () => {
     const github = securityGitHub({
       states: {
         'vulnerability-alerts': 'enabled',
@@ -40,10 +41,12 @@ describe('gh-manager security status', () => {
 
     expect(result.code).toBe(EXIT_CODES.SUCCESS);
     expect(result.output).toContain(REPO);
-    expect(result.output).toContain('dependency-graph          disabled');
-    expect(result.output).toContain('vulnerability-alerts      enabled');
-    expect(result.output).toContain('secret-scanning           enabled');
-    expect(result.sessions.length).toBe(0);
+    expect(result.output).toContain(
+      'dependency-graph                 disabled'
+    );
+    expect(result.output).toContain('vulnerability-alerts             enabled');
+    expect(result.output).toContain('secret-scanning                  enabled');
+    expect(result.sessions.length).toBe(1);
   });
 
   it('reads the settings page when the token may not ask, and says where the answer came from', async () => {
@@ -55,7 +58,7 @@ describe('gh-manager security status', () => {
     const result = await run(['status', REPO], { github });
 
     expect(result.code).toBe(EXIT_CODES.SUCCESS);
-    expect(result.output).toContain('dependency-graph          enabled');
+    expect(result.output).toContain('dependency-graph                 enabled');
     expect(result.output).toContain('(read from the settings page)');
     // One page reading answers for every feature, so the browser opens the
     // settings page a single time for the whole listing.
@@ -74,18 +77,17 @@ describe('gh-manager security status', () => {
 
     expect(report.length).toBe(1);
     expect(report[0].repository).toBe(REPO);
-    expect(report[0].features.map((feature) => feature.id)).toEqual([
-      'dependency-graph',
-      'vulnerability-alerts',
-      'automated-security-fixes',
-      'secret-scanning',
-      'push-protection',
-    ]);
+    expect(report[0].features.map((feature) => feature.id)).toEqual(
+      SECURITY_FEATURE_IDS
+    );
     expect(report[0].features[4]).toEqual({
       id: 'push-protection',
       label: 'Push protection',
       state: 'enabled',
       source: 'api',
+      visibility: 'public',
+      defaultState: 'enabled',
+      differsFromDefault: false,
     });
   });
 });

@@ -103,6 +103,9 @@ export function actionsApi({
 
 function defaultRoute(path, { source, noRuns, run, job, log }) {
   let body;
+  if (path === '/user/repos') {
+    return { status: 200, body: [] };
+  }
   if (path === '/repos/acme/one') {
     body = { id: 11, full_name: 'acme/one', default_branch: 'main' };
   } else if (path.endsWith('/contents/.github/workflows')) {

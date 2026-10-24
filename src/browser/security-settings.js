@@ -36,9 +36,12 @@ const SETTLE_TIMEOUT_MS = 10000;
  * @param {{feature: string, action: string}|null} mark - Control to mark
  * @returns {Promise<{rows: Object<string, Object>, marked: Object|null}>} Page reading
  */
-async function inspect(session, mark) {
+async function inspect(session, mark, feature) {
   const result = await inspectSecurityRows(session.commander, {
-    features: SECURITY_FEATURES,
+    features:
+      feature && !SECURITY_FEATURES.some((entry) => entry.id === feature.id)
+        ? [...SECURITY_FEATURES, feature]
+        : SECURITY_FEATURES,
     controls: SECURITY_CONTROLS,
     lockPhrases: SECURITY_LOCK_PHRASES,
     mark,
@@ -62,7 +65,7 @@ async function inspect(session, mark) {
  * @param {Object} options.log - Logger
  * @returns {Promise<Object<string, Object>>} Row state by feature id
  */
-export async function readSecurityFeatures(session, { repo, log }) {
+export async function readSecurityFeatures(session, { repo, log, feature }) {
   const landed = await gotoUrl(session, repoSecuritySettingsUrl(repo));
   const state = await readPageState(session.commander);
   assertSignedIn(state);
@@ -74,7 +77,7 @@ export async function readSecurityFeatures(session, { repo, log }) {
     );
   }
 
-  const { rows } = await inspect(session, null);
+  const { rows } = await inspect(session, null, feature);
 
   if (!Object.values(rows).some((row) => row.found)) {
     await failWithArtifacts(session, {
@@ -103,17 +106,17 @@ export async function readSecurityFeatures(session, { repo, log }) {
  */
 export async function setSecurityFeature(
   session,
-  { repo, feature, enabled, log }
+  { repo, feature, enabled, log, settleTimeout = SETTLE_TIMEOUT_MS }
 ) {
   const action = enabled ? 'enable' : 'disable';
   const label = `${action} ${feature.label} on ${repoSlug(repo)}`;
-  const rows = await readSecurityFeatures(session, { repo, log });
+  const rows = await readSecurityFeatures(session, { repo, log, feature });
   const row = rows[feature.id];
 
-  if (!row.found) {
+  if (!row?.found) {
     await failWithArtifacts(session, {
       label,
-      message: `GitHub's code security page for ${repoSlug(repo)} shows no "${feature.label}" row (${row.reason}), so nothing was clicked.`,
+      message: `GitHub's code security page for ${repoSlug(repo)} shows no "${feature.label}" row (${row?.reason ?? 'no-row'}), so nothing was clicked.`,
     });
   }
 
@@ -129,7 +132,11 @@ export async function setSecurityFeature(
     });
   }
 
-  const { marked } = await inspect(session, { feature: feature.id, action });
+  const { marked } = await inspect(
+    session,
+    { feature: feature.id, action },
+    feature
+  );
 
   if (!marked.found) {
     await failWithArtifacts(session, {
@@ -141,9 +148,9 @@ export async function setSecurityFeature(
   await clickMarked(session, { label });
 
   const { value } = await pollFor(session, {
-    read: async () => (await inspect(session, null)).rows[feature.id],
+    read: async () => (await inspect(session, null, feature)).rows[feature.id],
     accept: (current) => current.state === stateName(enabled),
-    timeout: SETTLE_TIMEOUT_MS,
+    timeout: settleTimeout,
   });
 
   return { changed: true, reported: value.found ? value.state : null };

@@ -516,6 +516,8 @@ export function inspectSecurityRows(
 
       const CONTROLS =
         'button, a, summary, input[type="submit"], [role="button"]';
+      const CHECKBOXES =
+        'input[type="checkbox"], [role="switch"], [role="checkbox"]';
       const HEADINGS =
         'h1, h2, h3, h4, h5, h6, strong, b, summary, label, legend, span, div, p, td, th, a';
 
@@ -534,6 +536,27 @@ export function inspectSecurityRows(
           ].join(' ')
         );
 
+      // Retain rows GitHub adds even before this release knows their names.
+      for (const element of document.querySelectorAll(
+        'h3, h4, [data-security-heading]'
+      )) {
+        const label = (element.innerText || element.textContent || '').trim();
+        const text = normalize(label);
+        const container = element.closest(
+          '.Box-row, [data-security-row], fieldset'
+        );
+        if (
+          container &&
+          text &&
+          !wanted.some((entry) => entry.headings.includes(text))
+        ) {
+          wanted.push({
+            id: `page-${encodeURIComponent(text)}`,
+            label,
+            headings: [text],
+          });
+        }
+      }
       const headings = [];
 
       for (const element of document.querySelectorAll(HEADINGS)) {
@@ -569,17 +592,27 @@ export function inspectSecurityRows(
       };
 
       const rowOf = (element) => {
+        const explicit = element.closest(
+          '.Box-row, [data-security-row], fieldset'
+        );
+        if (explicit) {
+          return explicit;
+        }
         let node = element;
 
         for (let step = 0; step < 6 && node; step += 1) {
-          if (controlIn(node, enableLabels) || controlIn(node, disableLabels)) {
+          if (
+            controlIn(node, enableLabels) ||
+            controlIn(node, disableLabels) ||
+            node.querySelector(CHECKBOXES)
+          ) {
             return node;
           }
 
           node = node.parentElement;
         }
 
-        return null;
+        return element.closest('.Box-row, [data-security-row], fieldset');
       };
 
       const featuresIn = (row) =>
@@ -619,18 +652,47 @@ export function inspectSecurityRows(
         }
 
         const disable = controlIn(row, disableLabels);
-        const control = disable || controlIn(row, enableLabels);
-        const text = normalize(row.innerText);
-
+        const enable = controlIn(row, enableLabels);
+        const checkbox = row.querySelector(CHECKBOXES);
+        const control = checkbox || disable || enable;
+        const text = normalize(
+          [
+            row.innerText || row.textContent,
+            ...[...row.querySelectorAll('span, p, [role="status"]')].map(
+              (node) => node.innerText || node.textContent
+            ),
+          ].join(' ')
+        );
+        const state = checkbox
+          ? (
+              typeof checkbox.checked === 'boolean'
+                ? checkbox.checked
+                : checkbox.hasAttribute('checked') ||
+                  checkbox.getAttribute('aria-checked') === 'true'
+            )
+            ? 'enabled'
+            : 'disabled'
+          : disable
+            ? 'enabled'
+            : enable
+              ? 'disabled'
+              : /\bdisabled\b|not enabled/.test(text)
+                ? 'disabled'
+                : /\benabled\b/.test(text)
+                  ? 'enabled'
+                  : 'unknown';
         return {
           id: feature.id,
+          label: feature.label,
+          headings: feature.headings,
           found: true,
-          state: disable ? 'enabled' : 'disabled',
+          state,
           locked:
+            !control ||
             control.hasAttribute('disabled') ||
             control.getAttribute('aria-disabled') === 'true' ||
             locks.some((phrase) => text.includes(phrase)),
-          text: (row.innerText || '').trim().slice(0, 300),
+          text: (row.innerText || row.textContent || '').trim().slice(0, 300),
         };
       };
 
@@ -643,7 +705,7 @@ export function inspectSecurityRows(
 
         const labels =
           target.action === 'enable' ? enableLabels : disableLabels;
-        const control = controlIn(row, labels);
+        const control = controlIn(row, labels) || row.querySelector(CHECKBOXES);
 
         if (!control) {
           return { found: false, reason: 'no-such-control' };
@@ -667,6 +729,7 @@ export function inspectSecurityRows(
         wanted: features.map((feature) => ({
           id: feature.id,
           headings: feature.headings,
+          label: feature.label,
         })),
         enableLabels: controls.enable,
         disableLabels: controls.disable,

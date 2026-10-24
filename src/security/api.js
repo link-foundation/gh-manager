@@ -96,7 +96,18 @@ async function readAnalysis(rest, { repo, feature }) {
   return unknown('not-reported');
 }
 
+async function readDefaultSetup(rest, { repo, feature }) {
+  const response = await rest.send(`${repoPath(repo)}/${feature.read.path}`);
+  if (!response.ok) {
+    return unknown(`http-${response.status}`);
+  }
+  return ['configured', 'not-configured'].includes(response.body?.state)
+    ? known(response.body.state === 'configured')
+    : unknown('not-reported');
+}
+
 const READERS = {
+  'default-setup': readDefaultSetup,
   toggle: readToggle,
   sbom: readSbom,
   analysis: readAnalysis,
@@ -139,7 +150,15 @@ function writeAnalysis(rest, { repo, feature, enabled }) {
   });
 }
 
-const WRITERS = { toggle: writeToggle, analysis: writeAnalysis };
+const WRITERS = {
+  toggle: writeToggle,
+  analysis: writeAnalysis,
+  'default-setup': (rest, { repo, feature, enabled }) =>
+    rest.send(`${repoPath(repo)}/${feature.write.path}`, {
+      method: 'PATCH',
+      body: { state: enabled ? 'configured' : 'not-configured' },
+    }),
+};
 
 /**
  * Report whether the API can write this feature with the credentials at hand.

@@ -59,7 +59,7 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
       log?.debug(`runs API: GET ${path}`);
       return rest.text(path);
     },
-    async logs(run, { repo, grep = [] } = {}) {
+    async logs(run, { repo, grep = [], failedOnly = false } = {}) {
       expressions(grep);
       const target = runTarget(run, repo);
       const runUrl = `https://github.com/${repoSlug(target.repo)}/actions/runs/${target.id}`;
@@ -80,6 +80,9 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
         return [{ ...location, ...unavailable, url: runUrl }];
       }
       for (const job of jobs) {
+        if (failedOnly && job.conclusion !== 'failure') {
+          continue;
+        }
         const source = await manager.jobLog(target.repo, job.id);
         if (typeof source !== 'string') {
           lines.push({
@@ -104,6 +107,43 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
       }
       return lines;
     },
+    async failuresForRepository(target, { branch, grep = [] } = {}) {
+      const repo = repositoryTarget(target);
+      const defaultBranch =
+        branch ?? (await rest.request(repoPath(repo))).default_branch;
+      if (!defaultBranch) {
+        throw new CliError('GitHub did not return a default branch.');
+      }
+      const workflows = await pages(
+        rest,
+        `${repoPath(repo)}/actions/workflows`,
+        'workflows'
+      );
+      const findings = [];
+      for (const workflow of workflows) {
+        try {
+          const finding = await workflowFailure(manager, repo, workflow, {
+            branch: defaultBranch,
+            grep,
+            retentionDays: Infinity,
+            now,
+            failedOnly: true,
+          });
+          if (finding) {
+            findings.push(finding);
+          }
+        } catch (error) {
+          findings.push({
+            repository: repoSlug(repo),
+            workflow: workflow.path,
+            status: 'unknown',
+            reason: 'workflow-error',
+            error: error.message,
+          });
+        }
+      }
+      return findings;
+    },
     async failures(options) {
       return (await scanFailures(manager, { rest, log, now }, options))
         .findings;
@@ -121,7 +161,7 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
 }
 
 async function workflowFailure(manager, target, workflow, options) {
-  const { branch, grep, retentionDays, now } = options;
+  const { branch, grep, retentionDays, now, failedOnly } = options;
   const [latest] = await manager.list(target, {
     workflow: workflow.path ?? String(workflow.id),
     branch,
@@ -144,7 +184,11 @@ async function workflowFailure(manager, target, workflow, options) {
       matches: [],
     };
   }
-  const results = await manager.logs(latest.id, { repo: target, grep });
+  const results = await manager.logs(latest.id, {
+    repo: target,
+    grep,
+    failedOnly,
+  });
   const missing = results.filter((entry) => entry.status);
   const matches = results.filter((entry) => !entry.status);
   if (!missing.length && !matches.length) {

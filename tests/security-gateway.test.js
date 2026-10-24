@@ -12,7 +12,10 @@ import { describe, it, expect } from 'test-anywhere';
 import { EXIT_CODES } from '../src/exit-codes.js';
 import { createLogger } from '../src/logging.js';
 import { createSecurityGateway } from '../src/security/gateway.js';
-import { findSecurityFeature } from '../src/security/features.js';
+import {
+  SECURITY_FEATURE_IDS,
+  findSecurityFeature,
+} from '../src/security/features.js';
 import { createFakeSession } from './fixtures/fake-browser.js';
 import { securityGitHub } from './fixtures/github-security-pages.js';
 
@@ -97,13 +100,7 @@ describe('reading security settings', () => {
     const { gateway, sessions } = gatewayFor({ apiRead: false });
     const statuses = await gateway.readAll();
 
-    expect(statuses.map((status) => status.id)).toEqual([
-      'dependency-graph',
-      'vulnerability-alerts',
-      'automated-security-fixes',
-      'secret-scanning',
-      'push-protection',
-    ]);
+    expect(statuses.map((status) => status.id)).toEqual(SECURITY_FEATURE_IDS);
     expect(statuses.every((status) => status.state === 'disabled')).toBe(true);
     expect(sessions[0].visited.length).toBe(1);
   });

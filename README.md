@@ -257,6 +257,52 @@ command:
 gh-manager package permissions list --pattern 'box*' --org link-foundation
 ```
 
+### doctor
+
+```bash
+gh-manager doctor owner/repo
+gh-manager doctor --user konard
+gh-manager doctor --org link-foundation --json
+gh-manager doctor --org link-foundation --fix --yes
+gh-manager doctor owner/repo --fix --yes --no-rerun
+gh-manager doctor owner/repo --fix --dry-run --json
+```
+
+Doctor reads workflows and the latest default-branch run of each workflow. It
+reports Pages, dependency graph, Dependabot alert, and advanced/default CodeQL
+conflicts with file/line or failed-run URL/log-line evidence, current and required
+states, and whether it can fix them. It scans every accessible repository in a
+user or organization, including forks and archives, and continues after an
+individual repository error. Accessible private repositories are included through authenticated owner and
+collaborator discovery.
+
+Reports are read-only. `--fix` shows the concrete plan and asks for confirmation;
+`--yes` accepts it. Repairs use the security and Pages gateways and verify the
+result. Page-only graph changes use a signed-in browser when the API cannot
+write. Failed jobs are rerun only when their logs identify a setting that was
+actually changed and verified; `--no-rerun` opts out. Static evidence alone does
+not rerun unrelated failures. Unresolved findings, unavailable evidence, policy
+restrictions, and repository errors produce a nonzero exit. An advanced scanning
+workflow with an entitlement/permissions problem needs manual action, since
+enabling default setup would block that workflow's uploads.
+
+### pages
+
+```bash
+gh-manager pages status owner/repo --json
+gh-manager pages source owner/repo --actions --yes
+gh-manager pages source owner/repo --branch main:/docs --dry-run
+gh-manager pages source owner/repo --branch gh-pages --yes
+```
+
+Pages sources support GitHub Actions or a branch at `/` (the default) or `/docs`.
+The manager creates an absent site with POST and updates an existing site with
+PUT, then re-reads the API to verify the requested source. Changes use the same
+confirmation, `--yes`, `--dry-run`, and `--json` behavior as security settings.
+The library exports `createPagesManager`, `pagesSource`, and `createDoctor`;
+see [the read-only diagnosis example](examples/diagnose-repository.js) and
+[the requirement inventory and research](docs/issue-24.md).
+
 ### security
 
 ```bash
@@ -267,6 +313,31 @@ gh-manager security automated-security-fixes link-foundation/gh-manager --enable
 gh-manager security secret-scanning link-foundation/gh-manager --enable
 gh-manager security push-protection link-foundation/gh-manager --disable
 ```
+
+Additional security verbs use the same flags:
+
+```bash
+gh-manager security private-vulnerability-reporting owner/repo --enable --yes
+gh-manager security non-provider-patterns owner/repo --enable
+gh-manager security validity-checks owner/repo --disable
+gh-manager security code-scanning-default-setup owner/repo --enable
+gh-manager security grouped-security-updates owner/repo --enable
+gh-manager security dependabot-self-hosted-runners owner/repo --disable
+gh-manager security dependabot-actions-runners owner/repo --enable
+gh-manager security copilot-autofix owner/repo --enable
+# A newly discovered page toggle can be addressed by its exact heading:
+gh-manager security page-setting owner/repo --name 'Future security feature' --enable
+```
+
+Default setup refuses an advanced CodeQL analyze or SARIF upload workflow,
+explaining that default setup blocks advanced uploads. `security status` includes
+page-only settings, discovers additional named rows, and reports their state.
+It marks differences from GitHub product defaults for public/private/internal
+visibility. JSON includes `defaultState`, `differsFromDefault` (null if unknown),
+and `visibility`. Organization configuration can override product defaults.
+The enabled defaults for Copilot Autofix and Dependabot on Actions runners assume
+CodeQL eligibility and Actions availability, respectively. Unknown states,
+missing controls and policy restrictions remain explicit.
 
 These are the toggles of `/settings/security_analysis`. Targets are
 repositories, written as `<owner>/<repo>` or as `<repo>` together with `--org`
@@ -303,10 +374,10 @@ $ gh-manager security dependency-graph link-foundation/gh-manager --enable --yes
 ]
 ```
 
-Two settings depend on another one, and GitHub refuses them with a bare `422`
+Several settings depend on another one, and GitHub refuses them with a bare `422`
 when the dependency is missing, so gh-manager names the missing one before
 anything is touched: Dependabot security updates need Dependabot alerts, and
-push protection needs secret scanning.
+push protection, non-provider patterns, and validity checks need secret scanning.
 
 A toggle an organization or enterprise policy owns cannot be flipped from a
 repository at all. gh-manager refuses it with the screenshot and the page HTML

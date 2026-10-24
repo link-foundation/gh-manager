@@ -25,8 +25,10 @@ const EXPECTED_EXPORTS = [
   'VISIBILITIES',
   'appPaths',
   'auditWorkflows',
+  'createDoctor',
   'createMatcher',
   'createPackageGateway',
+  'createPagesManager',
   'createProtectionManager',
   'createRepoManager',
   'createRestClient',
@@ -47,6 +49,7 @@ const EXPECTED_EXPORTS = [
   'loadStoredConfig',
   'matchPackageNames',
   'openBrowserSession',
+  'pagesSource',
   'parseArgs',
   'parsePolicy',
   'parseRepoSpec',
@@ -102,6 +105,14 @@ describe('library surface', () => {
       'automated-security-fixes',
       'secret-scanning',
       'push-protection',
+      'private-vulnerability-reporting',
+      'non-provider-patterns',
+      'validity-checks',
+      'code-scanning-default-setup',
+      'grouped-security-updates',
+      'dependabot-self-hosted-runners',
+      'dependabot-actions-runners',
+      'copilot-autofix',
     ]);
     expect(ghManager.findSecurityFeature('dependency-graph').label).toBe(
       'Dependency graph'

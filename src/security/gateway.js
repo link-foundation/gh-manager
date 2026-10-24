@@ -10,6 +10,9 @@
  */
 
 import { CliError, EXIT_CODES } from '../exit-codes.js';
+import { workflowFiles } from '../secrets/workflows.js';
+import { workflowRequirements } from '../doctor/workflows.js';
+import { repoPath } from '../github/rest.js';
 import { repoSlug } from '../github/repo.js';
 import {
   readSecurityFeatures,
@@ -29,6 +32,7 @@ import {
   SECURITY_FEATURES,
   findSecurityFeature,
   stateName,
+  securityDefault,
 } from './features.js';
 
 /**
@@ -51,6 +55,7 @@ function createSecurityReaders({
 }) {
   const slug = repoSlug(repo);
   let pageRows = null;
+  let pageError = null;
 
   /**
    * Read every row of the settings page, keeping the reading for this run.
@@ -61,9 +66,18 @@ function createSecurityReaders({
    * @returns {Promise<Object<string, Object>>} Rows by feature id
    */
   async function readPage(fresh = false) {
+    if (pageError && !fresh) {
+      throw pageError;
+    }
     if (fresh || !pageRows) {
-      const session = await getSession();
-      pageRows = await readSecurityFeatures(session, { repo, log });
+      try {
+        const session = await getSession();
+        pageRows = await readSecurityFeatures(session, { repo, log });
+        pageError = null;
+      } catch (error) {
+        pageError = error;
+        throw error;
+      }
     }
 
     return pageRows;
@@ -118,6 +132,9 @@ function createSecurityReaders({
    * @returns {Promise<{checked: boolean, verified: boolean, state: string}>} Result
    */
   async function verifyThroughApi(feature, enabled) {
+    if (!feature.read || !rest.hasToken) {
+      return { checked: false, verified: false, state: 'unknown' };
+    }
     let sawConclusiveRead = false;
 
     const { value, accepted } = await pollUntil({
@@ -156,9 +173,9 @@ function createSecurityReaders({
     const required = findSecurityFeature(feature.requires);
     const status = await readFeature(required);
 
-    if (status.state === 'disabled') {
+    if (status.state !== 'enabled') {
       throw new CliError(
-        `"${feature.label}" needs "${required.label}", which is off for ${slug}. Run \`gh-manager security ${required.id} ${slug} --enable\` first.`,
+        `"${feature.label}" needs "${required.label}", which is ${status.state} for ${slug}. Run \`gh-manager security ${required.id} ${slug} --enable\` first.`,
         EXIT_CODES.FAILURE
       );
     }
@@ -166,6 +183,7 @@ function createSecurityReaders({
 
   return {
     readFeature,
+    readPage,
     readThroughPage,
     verifyThroughApi,
     requirePrerequisite,
@@ -176,6 +194,7 @@ function createSecurityReaders({
      */
     forgetPage() {
       pageRows = null;
+      pageError = null;
     },
   };
 }
@@ -249,12 +268,52 @@ export function createSecurityGateway({
      * @returns {Promise<Array<Object>>} One status per feature
      */
     async readAll() {
+      const metadata = await rest.send(repoPath(repo));
+      const visibility =
+        metadata.body?.visibility ??
+        (metadata.body?.private === false ? 'public' : 'unknown');
       const statuses = [];
-
       for (const feature of SECURITY_FEATURES) {
-        statuses.push(await readers.readFeature(feature));
+        let status;
+        try {
+          status = await readers.readFeature(feature);
+        } catch (error) {
+          status = {
+            id: feature.id,
+            label: feature.label,
+            state: 'unknown',
+            source: 'none',
+            reason: error.message,
+          };
+        }
+        const defaultState = securityDefault(feature, visibility);
+        statuses.push({
+          ...status,
+          defaultState,
+          visibility,
+          differsFromDefault:
+            status.state === 'unknown' || defaultState === 'unknown'
+              ? null
+              : status.state !== defaultState,
+        });
       }
-
+      try {
+        const rows = await readers.readPage();
+        for (const row of Object.values(rows)) {
+          if (SECURITY_FEATURES.some((feature) => feature.id === row.id)) {
+            continue;
+          }
+          statuses.push({
+            ...row,
+            source: 'page',
+            visibility,
+            defaultState: 'unknown',
+            differsFromDefault: null,
+          });
+        }
+      } catch (error) {
+        log.debug(`Page inventory incomplete: ${error.message}`);
+      }
       return statuses;
     },
 
@@ -266,6 +325,22 @@ export function createSecurityGateway({
      * @returns {Promise<{feature: string, state: string, changed: boolean, changedBy: string|null, verifiedBy: string}>} Outcome
      */
     async setFeature({ feature, enabled }) {
+      if (enabled && feature.id === 'code-scanning-default-setup') {
+        const workflows = await workflowFiles(rest, repo);
+        const advanced = workflows
+          .flatMap(({ file, source }) =>
+            workflowRequirements({
+              path: `.github/workflows/${file}`,
+              content: source,
+            })
+          )
+          .find((entry) => entry.setting === 'code-scanning-default-setup');
+        if (advanced) {
+          throw new CliError(
+            `Refusing default setup: ${advanced.evidence.file}:${advanced.evidence.line} uses advanced code scanning. Default setup blocks advanced CodeQL uploads. Disable the advanced workflow first.`
+          );
+        }
+      }
       const wanted = stateName(enabled);
       const before = await readers.readFeature(feature);
 
@@ -294,7 +369,7 @@ export function createSecurityGateway({
         };
       }
 
-      if (check.checked && !feature.read.lagging) {
+      if (check.checked && !feature.read?.lagging) {
         throw new CliError(
           `"${feature.label}" still reports "${check.state}" for ${slug} after the change was submitted.`,
           EXIT_CODES.VERIFICATION_FAILED

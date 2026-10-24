@@ -18,6 +18,7 @@ describe('repository discovery', () => {
                 }))
               : [{ name: 'fork', fork: true }],
         }),
+        '/user': { body: { login: 'someone-else' } },
         '/users/alice/repos': { body: [{ name: 'personal', archived: true }] },
       },
     });
@@ -114,5 +115,36 @@ describe('Actions run discovery', () => {
     const query = api.calls.find((call) => call.path.endsWith('/runs')).query;
     expect(query.get('branch')).toBe('main');
     expect(query.has('status')).toBe(false);
+  });
+});
+
+describe('owned private repository discovery', () => {
+  it('combines public and owned private repositories owned by the selected user, including collaborator access', async () => {
+    const api = actionsApi({
+      routes: {
+        '/user': { body: { login: 'bob' } },
+        '/users/alice/repos': {
+          body: [{ name: 'public', full_name: 'alice/public' }],
+        },
+        '/user/repos': {
+          body: [
+            { name: 'public', full_name: 'alice/public' },
+            { name: 'private', full_name: 'alice/private', private: true },
+            {
+              name: 'collaborating',
+              full_name: 'bob/collaborating',
+              private: true,
+            },
+          ],
+        },
+      },
+    });
+    const result = await createRepoManager({ rest: api.rest }).list({
+      user: 'alice',
+    });
+    expect(result.map((repo) => repo.name)).toEqual(['public', 'private']);
+    const call = api.calls.find((call) => call.path === '/user/repos');
+    expect(call.query.get('affiliation')).toBe('owner,collaborator');
+    expect(call.query.get('visibility')).toBe('all');
   });
 });

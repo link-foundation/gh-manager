@@ -86,7 +86,24 @@ export function createRepoManager({ rest, log } = {}) {
         ? `/orgs/${accountName(org)}/repos`
         : `/users/${accountName(user)}/repos`;
       log?.debug(`repos API: GET ${path}`);
-      const items = await pages(rest, path);
+      let items = await pages(rest, path);
+      if (user && rest.hasToken) {
+        const accessible = await pages(rest, '/user/repos', undefined, {
+          query: { affiliation: 'owner,collaborator', visibility: 'all' },
+        });
+        const owned = accessible.filter(
+          (repo) =>
+            repo.full_name?.split('/')[0].toLowerCase() === user.toLowerCase()
+        );
+        items = [
+          ...new Map(
+            [...items, ...owned].map((repo) => [
+              repo.full_name?.toLowerCase() ?? repo.name,
+              repo,
+            ])
+          ).values(),
+        ];
+      }
       return items.filter(
         (item) =>
           (includeArchived || !item.archived) && (includeForks || !item.fork)
