@@ -7,6 +7,8 @@
  * to know the domain exists.
  */
 
+import { doctorDomain } from './doctor.js';
+import { pagesDomain } from './pages.js';
 import { authDomain } from './auth.js';
 import { configDomain } from './config.js';
 import { packageDomain } from './package.js';
@@ -19,6 +21,8 @@ import { repoDomain, runsDomain } from './discovery.js';
 /** Domains that ship with gh-manager. */
 export const DOMAINS = [
   authDomain,
+  pagesDomain,
+  doctorDomain,
   packageDomain,
   permissionsDomain,
   securityDomain,
@@ -41,6 +45,8 @@ export function findDomain(domains, name) {
 
 export {
   authDomain,
+  pagesDomain,
+  doctorDomain,
   configDomain,
   packageDomain,
   permissionsDomain,

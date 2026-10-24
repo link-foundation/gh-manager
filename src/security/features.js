@@ -69,6 +69,67 @@ export const SECURITY_FEATURES = [
     write: { kind: 'analysis', property: 'secret_scanning_push_protection' },
     requires: 'secret-scanning',
   },
+  {
+    id: 'private-vulnerability-reporting',
+    label: 'Private vulnerability reporting',
+    summary: 'Accept vulnerability reports privately',
+    headings: ['private vulnerability reporting'],
+    read: { kind: 'toggle', path: 'private-vulnerability-reporting' },
+    write: { kind: 'toggle', path: 'private-vulnerability-reporting' },
+  },
+  ...[
+    [
+      'non-provider-patterns',
+      'Non-provider patterns',
+      'secret_scanning_non_provider_patterns',
+    ],
+    ['validity-checks', 'Validity checks', 'secret_scanning_validity_checks'],
+  ].map(([id, label, property]) => ({
+    id,
+    label,
+    summary: label,
+    headings: [label.toLowerCase(), `secret scanning ${label.toLowerCase()}`],
+    read: { kind: 'analysis', property },
+    write: { kind: 'analysis', property },
+    requires: 'secret-scanning',
+  })),
+  {
+    id: 'code-scanning-default-setup',
+    label: 'Code scanning default setup',
+    summary: 'Configure CodeQL without an advanced workflow',
+    headings: [
+      'code scanning',
+      'codeql analysis',
+      'code scanning default setup',
+    ],
+    read: { kind: 'default-setup', path: 'code-scanning/default-setup' },
+    write: { kind: 'default-setup', path: 'code-scanning/default-setup' },
+  },
+  ...[
+    [
+      'grouped-security-updates',
+      'Grouped security updates',
+      ['grouped security updates', 'dependabot grouped security updates'],
+    ],
+    [
+      'dependabot-self-hosted-runners',
+      'Dependabot on self-hosted runners',
+      ['dependabot on self-hosted runners', 'dependabot self-hosted runners'],
+    ],
+    [
+      'dependabot-actions-runners',
+      'Dependabot on Actions runners',
+      ['dependabot on actions runners'],
+    ],
+    ['copilot-autofix', 'Copilot Autofix', ['copilot autofix', 'autofix']],
+  ].map(([id, label, headings]) => ({
+    id,
+    label,
+    summary: label,
+    headings,
+    read: null,
+    write: null,
+  })),
 ];
 
 /** Feature identifiers, in the order the domain lists them. */
@@ -101,4 +162,22 @@ export function findSecurityFeature(id) {
  */
 export function stateName(enabled) {
   return enabled ? 'enabled' : 'disabled';
+}
+
+/** GitHub product defaults; organization policies may override these. */
+export function securityDefault(feature, visibility) {
+  if (!['public', 'private', 'internal'].includes(visibility)) {
+    return 'unknown';
+  }
+  if (['copilot-autofix', 'dependabot-actions-runners'].includes(feature.id)) {
+    return 'enabled';
+  }
+  if (
+    ['dependency-graph', 'secret-scanning', 'push-protection'].includes(
+      feature.id
+    )
+  ) {
+    return visibility === 'public' ? 'enabled' : 'disabled';
+  }
+  return SECURITY_FEATURE_IDS.includes(feature.id) ? 'disabled' : 'unknown';
 }

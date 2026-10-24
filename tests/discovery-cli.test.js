@@ -33,6 +33,7 @@ describe('discovery and health CLI', () => {
       routes: {
         '/orgs/acme/repos': { body: [{ name: 'one' }] },
         '/users/alice/repos': { body: [{ name: 'personal' }] },
+        '/user': { body: { login: 'different-user' } },
         '/repos/acme/one/git/trees/main': {
           body: { tree: [{ path: 'manifest.json', type: 'blob', sha: 'a' }] },
         },

@@ -12,7 +12,7 @@
 import { CliError, EXIT_CODES, exitCodeForError } from '../exit-codes.js';
 import { repoSlug, resolveRepoTargets } from '../github/repo.js';
 import { SECURITY_FEATURES } from '../security/features.js';
-import { applyAll, confirmPlan, printJson, stopForDryRun } from './targets.js';
+import { applyAll, confirmPlan, printJson, reportDryRun } from './targets.js';
 
 /**
  * Read which state the command line asks for.
@@ -83,7 +83,7 @@ async function status(context) {
 
       for (const feature of entry.features) {
         context.log.info(
-          `  ${feature.id.padEnd(width)}  ${feature.state}${describeSource(feature.source)}`
+          `  ${feature.id.padEnd(width)}  ${feature.state}${feature.differsFromDefault === true ? `  (differs from default: ${feature.defaultState})` : feature.defaultState === 'unknown' ? '  (default unknown)' : ''}${describeSource(feature.source)}`
         );
       }
     }
@@ -114,7 +114,17 @@ async function setFeature(context, feature) {
     always: true,
   });
 
-  if (stopForDryRun(context)) {
+  if (
+    reportDryRun(
+      context,
+      repos.map((repo) => ({
+        target: repoSlug(repo),
+        dryRun: true,
+        feature: feature.id,
+        state: enabled ? 'enabled' : 'disabled',
+      }))
+    )
+  ) {
     return EXIT_CODES.SUCCESS;
   }
 
@@ -156,6 +166,32 @@ export const securityDomain = {
     'is given, and is reported only after a read confirmed it.',
   ],
   verbs: {
+    'page-setting': {
+      summary: 'Set an additional page-only toggle by --name <exact heading>',
+      run: (context) => {
+        const label = context.flags.name?.trim();
+        if (!label) {
+          throw new CliError(
+            'Supply --name with the exact security setting heading.',
+            EXIT_CODES.USAGE
+          );
+        }
+        const heading = label.toLowerCase().replace(/\s+/g, ' ');
+        const known = SECURITY_FEATURES.find((feature) =>
+          feature.headings.includes(heading)
+        );
+        return setFeature(
+          context,
+          known ?? {
+            id: `page-${encodeURIComponent(heading)}`,
+            label,
+            headings: [heading],
+            read: null,
+            write: null,
+          }
+        );
+      },
+    },
     status: {
       summary: 'Show every code security setting of a repository',
       run: status,

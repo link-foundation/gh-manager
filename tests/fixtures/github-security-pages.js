@@ -292,12 +292,43 @@ export function securityGitHub({
       status: 200,
       body: {
         full_name: `${pages.repo.owner}/${pages.repo.name}`,
+        visibility: 'public',
         security_and_analysis: {
           secret_scanning: analysis('secret-scanning'),
           secret_scanning_push_protection: analysis('push-protection'),
+          secret_scanning_non_provider_patterns: analysis(
+            'non-provider-patterns'
+          ),
+          secret_scanning_validity_checks: analysis('validity-checks'),
         },
       },
     })),
+    [`${base}/private-vulnerability-reporting`]: reading(() => ({
+      status: 200,
+      body: {
+        enabled: features['private-vulnerability-reporting'] === 'enabled',
+      },
+    })),
+    [`PUT ${base}/private-vulnerability-reporting`]: toggleWrite(
+      'private-vulnerability-reporting'
+    ),
+    [`DELETE ${base}/private-vulnerability-reporting`]: toggleWrite(
+      'private-vulnerability-reporting'
+    ),
+    [`${base}/code-scanning/default-setup`]: reading(() => ({
+      status: 200,
+      body: {
+        state:
+          features['code-scanning-default-setup'] === 'enabled'
+            ? 'configured'
+            : 'not-configured',
+      },
+    })),
+    [`PATCH ${base}/code-scanning/default-setup`]: writing(({ body }) => {
+      features['code-scanning-default-setup'] =
+        body.state === 'configured' ? 'enabled' : 'disabled';
+      return { status: 202, body: {} };
+    }),
     [`PUT ${base}/vulnerability-alerts`]: toggleWrite('vulnerability-alerts'),
     [`DELETE ${base}/vulnerability-alerts`]: toggleWrite(
       'vulnerability-alerts'

@@ -149,3 +149,16 @@ export function printJson(context, value) {
   context.log.info(JSON.stringify(value, null, 2));
   return EXIT_CODES.SUCCESS;
 }
+
+/** Report a structured dry-run plan without polluting JSON with prose. */
+export function reportDryRun(context, plan) {
+  if (!context.flags.dryRun) {
+    return false;
+  }
+  if (context.flags.json) {
+    printJson(context, plan);
+  } else {
+    context.log.info('Dry run: nothing was changed.');
+  }
+  return true;
+}

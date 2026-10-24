@@ -43,6 +43,16 @@ async function failureOf(operation) {
   throw new Error('expected the operation to fail');
 }
 
+const refusedEnable = (pages, session) =>
+  failureOf(() =>
+    setSecurityFeature(session, {
+      repo: pages.repo,
+      feature: graph,
+      enabled: true,
+      log,
+    })
+  );
+
 describe('readSecurityFeatures', () => {
   it('reads the state of every toggle on the page', async () => {
     const pages = securityPages({
@@ -183,12 +193,14 @@ describe('setSecurityFeature', () => {
       setSecurityFeature(session, {
         repo: pages.repo,
         feature: graph,
-        enabled: true,
+        enabled: false,
         log,
       })
     );
 
-    expect(error.message).toContain('no "Dependency graph" row');
+    expect(error.message).toContain(
+      'governed by an organization or enterprise policy'
+    );
     expect(pages.state.clicks).toEqual([]);
   });
 
@@ -198,14 +210,7 @@ describe('setSecurityFeature', () => {
     });
     const session = createFakeSession({ routes: pages.routes });
 
-    const error = await failureOf(() =>
-      setSecurityFeature(session, {
-        repo: pages.repo,
-        feature: graph,
-        enabled: true,
-        log,
-      })
-    );
+    const error = await refusedEnable(pages, session);
 
     expect(error.message).toContain('(ambiguous-row)');
     expect(pages.state.clicks).toEqual([]);
@@ -216,14 +221,7 @@ describe('setSecurityFeature', () => {
     const pages = securityPages({ locked: ['dependency-graph'] });
     const session = createFakeSession({ routes: pages.routes });
 
-    const error = await failureOf(() =>
-      setSecurityFeature(session, {
-        repo: pages.repo,
-        feature: graph,
-        enabled: true,
-        log,
-      })
-    );
+    const error = await refusedEnable(pages, session);
 
     expect(error.message).toContain(
       'governed by an organization or enterprise policy'

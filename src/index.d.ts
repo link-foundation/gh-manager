@@ -184,6 +184,9 @@ export interface SecurityStatus {
   source: 'api' | 'page' | 'none';
   locked?: boolean;
   reason?: string;
+  visibility?: string;
+  defaultState?: 'enabled' | 'disabled' | 'unknown';
+  differsFromDefault?: boolean | null;
 }
 
 /** Result of setting one security setting. */
@@ -717,7 +720,11 @@ export interface RunUnknown {
   repository: string;
   workflow?: string;
   status: 'unknown';
-  reason: 'logs-expired' | 'logs-unavailable' | 'repository-error';
+  reason:
+    | 'logs-expired'
+    | 'logs-unavailable'
+    | 'repository-error'
+    | 'workflow-error';
   runId?: number;
   runUrl?: string;
   matches?: RunLogMatch[];
@@ -750,6 +757,10 @@ export interface RunFailureReport {
   }[];
 }
 export interface RunManager {
+  failuresForRepository(
+    target: Repository | string,
+    options?: { branch?: string; grep?: string[] }
+  ): Promise<Array<RunFailure | RunUnknown>>;
   list(
     repo: Repository | string,
     options?: RunListOptions
@@ -763,7 +774,11 @@ export interface RunManager {
   ): Promise<string | UnavailableLogs>;
   logs(
     run: number | string,
-    options?: { repo?: Repository | string; grep?: string[] }
+    options?: {
+      repo?: Repository | string;
+      grep?: string[];
+      failedOnly?: boolean;
+    }
   ): Promise<Array<RunLogMatch | RunLogsUnavailable>>;
   /** Detailed results retained for existing library consumers. */
   failures(
@@ -917,3 +932,93 @@ export declare function createProtectionManager(options: {
 }): ProtectionManager;
 
 export declare const DEFAULT_PROTECTION_RULES: readonly Readonly<ProtectionRule>[];
+
+export interface PagesSource {
+  build_type: 'workflow' | 'legacy';
+  source?: { branch: string; path: '/' | '/docs' };
+}
+export interface PagesStatus {
+  enabled: boolean;
+  build_type: 'workflow' | 'legacy' | 'disabled';
+  source?: { branch: string; path: string } | null;
+  changed?: boolean;
+  verifiedBy?: 'api';
+}
+export interface PagesManager {
+  status(target: Repository | string): Promise<PagesStatus>;
+  setSource(
+    target: Repository | string,
+    source: PagesSource
+  ): Promise<PagesStatus>;
+}
+export declare function pagesSource(flags: {
+  actions?: boolean;
+  branch?: string;
+}): PagesSource;
+export declare function createPagesManager(options: {
+  rest: RestClient;
+  verificationTimeout?: number;
+}): PagesManager;
+export interface DoctorEvidence {
+  kind: 'file' | 'log';
+  file?: string;
+  runId?: number;
+  runUrl?: string;
+  jobId?: number;
+  job?: string;
+  line: number;
+  text: string;
+}
+export interface DoctorFinding {
+  setting: string;
+  current: string;
+  required: string;
+  evidence: DoctorEvidence[];
+  fixable: boolean;
+  resolved: boolean;
+  reason?: string;
+  error?: string;
+  result?: SecurityResult | PagesStatus;
+}
+export interface DoctorRepository {
+  repository: string;
+  findings: DoctorFinding[];
+  errors: Array<Record<string, unknown>>;
+  reruns: Array<{
+    runId: number;
+    status: 'requested' | 'skipped';
+    reason?: string;
+    runUrl?: string;
+  }>;
+}
+export interface DoctorReport {
+  repositories: DoctorRepository[];
+  dryRun: boolean;
+  fix: boolean;
+  remaining: number;
+  exitCode: number;
+}
+export interface Doctor {
+  scan(
+    target: { repo?: Repository | string; org?: string; user?: string },
+    options?: {
+      fix?: boolean;
+      dryRun?: boolean;
+      rerun?: boolean;
+      includeArchived?: boolean;
+      includeForks?: boolean;
+      confirm?: (
+        plan: Array<DoctorFinding & { repository: string }>
+      ) => boolean | Promise<boolean>;
+    }
+  ): Promise<DoctorReport>;
+}
+export declare function createDoctor(options: {
+  rest: RestClient;
+  log?: { debug: (message: string) => void };
+  getSession?: () => Promise<BrowserSession>;
+  security?: (repo: Repository) => SecurityGateway;
+  repos?: RepoManager;
+  runs?: RunManager;
+  pages?: PagesManager;
+}): Doctor;

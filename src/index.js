@@ -63,3 +63,6 @@ export {
   createSecretHealth as health,
 } from './secrets/health.js';
 export { createSecretManager as secrets } from './secrets/manager.js';
+
+export { createPagesManager, pagesSource } from './pages/manager.js';
+export { createDoctor } from './doctor/manager.js';
