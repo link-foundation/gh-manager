@@ -102,6 +102,25 @@ describe('doctor reports and repairs', () => {
   });
 });
 describe('doctor repair controls', () => {
+  for (const [description, update] of [
+    ['recovers', { conclusion: 'success' }],
+    ['belongs to another branch', { head_branch: 'release' }],
+  ]) {
+    it(`does not rerun a failure that ${description} before repair`, async () => {
+      const api = doctorApi({ log: 'Get Pages site failed' });
+      const result = await fix(api, {
+        confirm: () => {
+          Object.assign(api.run, update);
+          return true;
+        },
+      });
+      expect(result.remaining).toBe(0);
+      expect(api.writes().map((call) => call.path)).toEqual([
+        '/repos/acme/one/pages',
+      ]);
+      expect(result.repositories[0].reruns[0].status).toBe('skipped');
+    });
+  }
   it('supports rerun opt-out', async () => {
     const api = doctorApi({ log: 'Get Pages site failed' });
     const result = await doctor(api).scan(

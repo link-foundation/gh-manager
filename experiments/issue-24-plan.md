@@ -16,8 +16,8 @@ Objective: implement issues 22 and 23 completely in PR 25, retain separate closi
 - [x] Investigate first-publish/trusted-publisher note and document/resolve any authentication blocker honestly.
 - [x] Add minor changeset, examples, user documentation and requirement evidence.
 - [x] Run focused tests, full suites, lint/format/duplication, syntax/types/line limits/secrets and other applicable local CI checks sequentially within memory budget (Node 815, Bun 815, Deno 752 plus 8 steps; zero failures; both audits clean).
-- [ ] Commit useful atomic steps only on issue-24-8d7c83698303 after local checks; preserve history.
-- [ ] Fetch/merge latest main, push only prepared branch, update PR title/body and closing keywords.
+- [x] Commit useful atomic steps only on issue-24-8d7c83698303 after local checks; preserve history.
+- [x] Fetch/merge latest main, push only prepared branch, update PR title/body and closing keywords (main is already an ancestor).
 - [ ] Review gh pr diff for regressions and scope; verify latest-head CI, download/analyze failures, repair until passing.
 - [ ] Re-read latest feedback, verify clean status, mark PR ready; report PR URL and any genuinely blocked criteria.
 

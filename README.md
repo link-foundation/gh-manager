@@ -334,7 +334,7 @@ explaining that default setup blocks advanced uploads. `security status` include
 page-only settings, discovers additional named rows, and reports their state.
 It marks differences from GitHub product defaults for public/private/internal
 visibility. JSON includes `defaultState`, `differsFromDefault` (null if unknown),
-and `visibility`. Organization configuration can override product defaults;
+and `visibility`. Organization configuration can override product defaults.
 The enabled defaults for Copilot Autofix and Dependabot on Actions runners assume
 CodeQL eligibility and Actions availability, respectively. Unknown states,
 missing controls and policy restrictions remain explicit.

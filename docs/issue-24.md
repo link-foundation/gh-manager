@@ -111,6 +111,12 @@ fast-uri at 516–523, undici at 525–533, and Vite at 536–544.
 Updating compatible versions in the example lockfile removes those advisories;
 no example functionality or dependency range was removed.
 
+The first updated-head run (40086764530) skipped runtime checks because change
+detection intentionally evaluates only the last PR commit, which changed the
+example lockfile. Rerun race-condition coverage is committed afterward so the
+final head also executes the full runtime matrix. Existing per-commit change
+detection behavior is preserved.
+
 ## First npm publication: external blocker
 
 The distribution note in #22 is a separate operational requirement and is still
