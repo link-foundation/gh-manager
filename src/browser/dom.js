@@ -517,7 +517,9 @@ export function inspectSecurityRows(
       const CONTROLS =
         'button, a, summary, input[type="submit"], [role="button"]';
       const CHECKBOXES =
-        'input[type="checkbox"], [role="switch"], [role="checkbox"]';
+        'input[type="checkbox"], [role="switch"], [role="checkbox"], button[aria-pressed="true"], button[aria-pressed="false"]';
+      const ROWS =
+        '.Box-row, .ControlGroup-item, [data-security-row], fieldset';
       const HEADINGS =
         'h1, h2, h3, h4, h5, h6, strong, b, summary, label, legend, span, div, p, td, th, a';
 
@@ -538,13 +540,11 @@ export function inspectSecurityRows(
 
       // Retain rows GitHub adds even before this release knows their names.
       for (const element of document.querySelectorAll(
-        'h3, h4, [data-security-heading]'
+        'h3, h4, [data-security-heading], .ControlGroup-item-title'
       )) {
         const label = (element.innerText || element.textContent || '').trim();
         const text = normalize(label);
-        const container = element.closest(
-          '.Box-row, [data-security-row], fieldset'
-        );
+        const container = element.closest(ROWS);
         if (
           container &&
           text &&
@@ -592,9 +592,7 @@ export function inspectSecurityRows(
       };
 
       const rowOf = (element) => {
-        const explicit = element.closest(
-          '.Box-row, [data-security-row], fieldset'
-        );
+        const explicit = element.closest(ROWS);
         if (explicit) {
           return explicit;
         }
@@ -612,7 +610,7 @@ export function inspectSecurityRows(
           node = node.parentElement;
         }
 
-        return element.closest('.Box-row, [data-security-row], fieldset');
+        return element.closest(ROWS);
       };
 
       const featuresIn = (row) =>
@@ -668,7 +666,8 @@ export function inspectSecurityRows(
               typeof checkbox.checked === 'boolean'
                 ? checkbox.checked
                 : checkbox.hasAttribute('checked') ||
-                  checkbox.getAttribute('aria-checked') === 'true'
+                  checkbox.getAttribute('aria-checked') === 'true' ||
+                  checkbox.getAttribute('aria-pressed') === 'true'
             )
             ? 'enabled'
             : 'disabled'

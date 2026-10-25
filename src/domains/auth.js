@@ -58,7 +58,20 @@ async function login(context) {
   );
 
   const { value, accepted } = await pollFor(session, {
-    read: () => readSignedInLogin(session.commander),
+    read: async () => {
+      try {
+        return await readSignedInLogin(session.commander);
+      } catch (error) {
+        if (
+          /execution context was destroyed|cannot find context with specified id/i.test(
+            error.message
+          )
+        ) {
+          return null;
+        }
+        throw error;
+      }
+    },
     accept: (account) => Boolean(account),
     timeout: seconds * 1000,
     interval: LOGIN_POLL_INTERVAL_MS,
