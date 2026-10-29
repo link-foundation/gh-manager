@@ -462,6 +462,38 @@ Repository listing omits archived repositories and forks by default. File globs 
 
 `runs logs` keeps its array of matched lines and includes typed `{ status: "logs-expired" | "logs-unavailable", runId, url, ... }` entries for unavailable logs. Library `rest.text` and `runs.jobLog` return a string on success or `{ status, httpStatus, path }` for HTTP 404/410; callers should narrow the result before parsing text. Authentication, rate-limit and server errors remain errors and are collected by bulk scans. Signed download URLs and API tokens never appear in unavailable-log results.
 
+### Actions variables and verified repairs
+
+Use caller-supplied non-secret values independently of secret expiry metadata or
+local CLI defaults:
+
+```sh
+gh-manager variable ensure NUGET_USER --value actual-registry-profile --repo owner/project --json
+gh-manager variable get NUGET_USER --repo owner/project --effective
+gh-manager variable list --repo owner/project --env production
+gh-manager variable ensure CUSTOM_NAME --value arbitrary-value --org owner --repos project,other
+gh-manager variable delete CUSTOM_NAME --repo owner/project --dry-run
+gh-manager repair verify ./repair-evidence.json --timeout 600 --json
+```
+
+`createVariableManager({ rest, scope })` provides `list`, `get`, `effective`,
+`ensure` and `delete` for repository, environment and organization variables.
+Equal state skips writes; ensure verifies saved values and effective precedence
+for the caller's consumer contexts. Existing selected organization access is
+preserved. Permission errors and read-back mismatches remain failures.
+
+`createRepairVerifier({ rest }).verify(evidence)` accepts the affected workflow,
+run/job IDs and actual verified changes. It skips no-ops, restarts only affected
+CI, and waits within a finite timeout for a fresh attempt with final SHA,
+conclusion and job evidence. Workflow code changes require an updated revision;
+missing job permissions are code prerequisites. Registry policy and OIDC
+publication verification stay with the caller.
+
+See the [complete API/CLI contract and regression inventory](docs/actions-variables-and-repair.md)
+and [programmatic example](examples/ensure-actions-variable.js). Shared organization
+secret cleanup now also requires a complete consumer audit, in addition to caller
+verification that OIDC and workflow consumers are ready.
+
 ### Stable library API
 
 The package entry exports typed `secrets`, `health`, `repos`, and `runs` factory aliases, plus `createSecretManager`, `createSecretHealth`, `createRepoManager`, and `createRunManager`. These services use an injected REST client and are supported for programmatic use:

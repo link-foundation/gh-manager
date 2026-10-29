@@ -2,6 +2,7 @@ import { CliError, EXIT_CODES } from '../exit-codes.js';
 import { createSecretApi, secretName } from './api.js';
 import { selectedTargets } from '../github/discovery.js';
 import { createSecretHealth } from './health.js';
+import { auditSharedCleanup } from './cleanup.js';
 import { normalizedExpiry, expiryReason, rotationWindow } from './expiry.js';
 
 // Callback errors may include credentials. Do not retain their cause or stack.
@@ -428,12 +429,14 @@ class SecretManager {
     ) {
       throw new CliError('Cleanup is not verified; secrets were retained.');
     }
+    const audit = await auditSharedCleanup(this.api.rest, this.scope, existing);
     for (const item of existing) {
       await this.api.delete(item.name);
     }
     return {
       reason: settings.reason,
       deleted: existing.map((item) => item.name),
+      ...(audit ? { audit } : {}),
       verified: true,
     };
   }
