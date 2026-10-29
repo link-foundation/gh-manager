@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0
+
+### Minor Changes
+
+- ac76d31: Add generic repository, environment and organization Actions variable
+  CRUD with effective-state verification, and caller-driven repair verification
+  that monitors relevant CI at the correct workflow revision. Audit shared
+  organization secret consumers before cleanup.
+
 ## 1.2.1
 
 ### Patch Changes
