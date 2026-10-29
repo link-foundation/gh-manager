@@ -52,6 +52,19 @@ export function variableBase(scope) {
       : `${repoPath(scope.repo)}/actions`;
 }
 
+function requiredPermission(path) {
+  if (path.startsWith('/orgs/')) {
+    return 'Variables organization permission (read for reads, write for changes), or admin:org';
+  }
+  if (path.includes('/environments/')) {
+    return 'Environments repository permission (read for reads, write for changes), or repo scope and repository admin access';
+  }
+  if (path.includes('/actions/')) {
+    return 'Variables repository permission (read for reads, write for changes), or repo scope';
+  }
+  return 'Metadata repository permission (read), or repo scope for a private repository';
+}
+
 export function createVariableApi({
   rest,
   scope,
@@ -79,11 +92,7 @@ export function createVariableApi({
     }
     if (!response.ok) {
       const denied = [401, 403].includes(response.status);
-      const permission = scope.org
-        ? 'Variables organization permission (read for reads, write for changes), or admin:org'
-        : scope.environment
-          ? 'Environments repository permission (read for reads, write for changes), or repo scope and repository admin access'
-          : 'Variables repository permission (read for reads, write for changes), or repo scope';
+      const permission = requiredPermission(path);
       const error = new CliError(
         `GitHub HTTP ${response.status}: Actions Variables ${denied ? `access denied; requires ${permission}` : 'setting unavailable, immutable, or request rejected; check target, plan and policy'}.`,
         denied ? EXIT_CODES.AUTH : EXIT_CODES.FAILURE

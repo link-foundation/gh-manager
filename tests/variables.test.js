@@ -149,6 +149,21 @@ describe('effective variable state and API refusal', () => {
       (error) => error.status === 404
     );
   });
+  it('reports the permission for the failing endpoint when effective checks cross scopes', async () => {
+    const denied = {
+      rest: { hasToken: true, send: async () => ({ ok: false, status: 403 }) },
+    };
+    for (const scope of [{ org: 'acme' }, { repo, environment: 'prod' }]) {
+      await assert.rejects(
+        manager(denied, scope).effective('CUSTOM', { repo }),
+        /Variables repository permission/
+      );
+    }
+    await assert.rejects(
+      manager(denied, { repo, environment: 'prod' }).get('CUSTOM'),
+      /Environments repository permission/
+    );
+  });
   it('paginates inventories and rejects invalid names, scopes and values', async () => {
     const api = variablesApi({ base: '/repos/acme/one/actions' });
     for (let i = 0; i < 101; i++) {
