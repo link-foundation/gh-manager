@@ -346,7 +346,10 @@ describe('verified rotation and trusted publishing cleanup', () => {
     expect(f.secrets.get('TOKEN').value).toBe(TOKEN);
   });
   it('cleans up caller-selected secrets only after callback verification', async () => {
-    const f = await fixture();
+    const f = await fixture(
+      { base: '/repos/acme/one/actions' },
+      { repo: { owner: 'acme', name: 'one' } }
+    );
     f.secrets.set('NPM_TOKEN', { name: 'NPM_TOKEN' });
     expect(
       (

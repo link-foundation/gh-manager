@@ -569,6 +569,7 @@ export interface SecretManager {
     dryRun?: boolean;
     verified?: boolean;
     requires?: string;
+    audit?: SecretAudit | null;
   }>;
 }
 
@@ -1022,3 +1023,156 @@ export declare function createDoctor(options: {
   runs?: RunManager;
   pages?: PagesManager;
 }): Doctor;
+
+/** Scope of a non-secret Actions variable. Environment scope requires a repository. */
+export type VariableScope =
+  | { org: string; repo?: never; environment?: never }
+  | { repo: Repository | string; org?: never; environment?: string };
+export interface VariableContext {
+  repo: Repository | string;
+  environment?: string;
+}
+export interface ActionsVariable {
+  name: string;
+  value: string;
+  scope: VariableScope;
+  visibility?: 'selected' | 'all' | 'private';
+  selected_repositories?: { id: number; full_name: string; name?: string }[];
+  created_at?: string;
+  updated_at?: string;
+}
+export interface EffectiveVariable {
+  repo: Repository;
+  environment?: string;
+  name: string;
+  value: string | null;
+  scope: VariableScope | null;
+  candidates: ActionsVariable[];
+  verified: true;
+}
+export interface VariableEnsureOptions {
+  dryRun?: boolean;
+  visibility?: 'selected' | 'all' | 'private';
+  /** Explicit selected grants are added; existing grants and visibility are preserved. */
+  repos?: string[];
+  /** Consumer contexts to verify; cannot infer environments the caller has not supplied. */
+  contexts?: VariableContext[];
+}
+export interface VariableEnsureResult {
+  kind: 'setting';
+  name: string;
+  scope: VariableScope;
+  changed: boolean;
+  wouldChange: boolean;
+  dryRun: boolean;
+  verified: boolean;
+  reason?: string;
+  state: ActionsVariable | null;
+  effective: EffectiveVariable[];
+}
+export interface VariableManager {
+  list(): Promise<ActionsVariable[]>;
+  /** Returns null only after establishing access to the scope inventory. */
+  get(name: string): Promise<ActionsVariable | null>;
+  effective(
+    name: string,
+    context?: VariableContext
+  ): Promise<EffectiveVariable>;
+  ensure(
+    name: string,
+    value: string,
+    options?: VariableEnsureOptions
+  ): Promise<VariableEnsureResult>;
+  delete(
+    name: string,
+    options?: { dryRun?: boolean }
+  ): Promise<{
+    name: string;
+    scope: VariableScope;
+    changed: boolean;
+    wouldChange: boolean;
+    dryRun: boolean;
+    verified: boolean;
+  }>;
+}
+export declare function createVariableManager(
+  options: GitHubServiceOptions & {
+    scope: VariableScope;
+    verificationTimeout?: number;
+  }
+): VariableManager;
+export { createVariableManager as variables };
+
+/** The caller supplies honest verification evidence; dry runs cannot authorize CI. */
+export interface RepairChange {
+  kind: 'setting' | 'workflow';
+  changed: boolean;
+  verified: boolean;
+  dryRun?: boolean;
+}
+export interface RepairVerificationInput {
+  repo: Repository | string;
+  workflow: string;
+  runId: number;
+  jobIds: number[];
+  changes: RepairChange[];
+  /** Required when workflow code changed. The ref must resolve to this new full SHA. */
+  revision?: { ref: string; sha: string };
+  /** Monitor a run the caller started after verification, e.g. by merging workflow code. */
+  newRunId?: number;
+  /** New-revision job names if the workflow renamed affected jobs. */
+  jobNames?: string[];
+  requiredPermissions?: {
+    job: string;
+    permission: string;
+    level: 'read' | 'write' | 'none';
+  }[];
+  inputs?: Record<string, string>;
+  /** Finite wall-clock budget for polling, milliseconds; default 600000. */
+  timeout?: number;
+  interval?: number;
+  dryRun?: boolean;
+}
+export interface RepairJobEvidence {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  url?: string;
+  steps?: WorkflowStep[];
+}
+export interface RepairVerificationResult {
+  repository: string;
+  workflow: string;
+  status:
+    | 'success'
+    | 'failure'
+    | 'timeout'
+    | 'verification-failed'
+    | 'prerequisite'
+    | 'skipped'
+    | 'dry-run';
+  success: boolean;
+  reason?: string;
+  runId?: number | null;
+  runAttempt?: number | null;
+  sha?: string | null;
+  conclusion?: string | null;
+  runUrl?: string | null;
+  jobs?: RepairJobEvidence[];
+  prerequisites?: {
+    file: string;
+    job: string;
+    permission: string;
+    required: string;
+    reason: string;
+  }[];
+  attempts?: Omit<RepairVerificationResult, 'repository' | 'workflow'>[];
+}
+export declare function createRepairVerifier(
+  options: GitHubServiceOptions & {
+    sleep?: (ms: number) => Promise<void> | void;
+  }
+): {
+  verify(input: RepairVerificationInput): Promise<RepairVerificationResult>;
+};

@@ -19,6 +19,8 @@ export const FLAG_SPECS = {
   org: { key: 'org', type: 'string' },
   repo: { key: 'repo', type: 'string' },
   env: { key: 'environment', type: 'string' },
+  value: { key: 'value', type: 'string' },
+  effective: { key: 'effective', type: 'boolean' },
   visibility: { key: 'visibility', type: 'string' },
   repos: { key: 'repos', type: 'string' },
   reason: { key: 'reason', type: 'string' },

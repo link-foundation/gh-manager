@@ -66,3 +66,8 @@ export { createSecretManager as secrets } from './secrets/manager.js';
 
 export { createPagesManager, pagesSource } from './pages/manager.js';
 export { createDoctor } from './doctor/manager.js';
+export {
+  createVariableManager,
+  createVariableManager as variables,
+} from './variables/manager.js';
+export { createRepairVerifier } from './repair/manager.js';
