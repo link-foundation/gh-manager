@@ -15,23 +15,28 @@ function count(context, expected) {
   }
 }
 
+async function repositoryInventory(context, operation) {
+  count(context, 0);
+  const users = context.flags.users ?? [];
+  if (users.length > 1) {
+    throw new CliError('Supply exactly one --user.', EXIT_CODES.USAGE);
+  }
+  output(
+    context,
+    await createRepoManager({ rest: context.rest, log: context.log })[
+      operation
+    ]({
+      org: context.flags.org,
+      user: users[0],
+      includeArchived: context.flags.includeArchived,
+      includeForks: context.flags.includeForks,
+    })
+  );
+}
+
 const repoVerbs = {
-  async list(context) {
-    count(context, 0);
-    const users = context.flags.users ?? [];
-    if (users.length > 1) {
-      throw new CliError('Supply exactly one --user.', EXIT_CODES.USAGE);
-    }
-    output(
-      context,
-      await createRepoManager({ rest: context.rest, log: context.log }).list({
-        org: context.flags.org,
-        user: users[0],
-        includeArchived: context.flags.includeArchived,
-        includeForks: context.flags.includeForks,
-      })
-    );
-  },
+  issues: (context) => repositoryInventory(context, 'issues'),
+  list: (context) => repositoryInventory(context, 'list'),
   async files(context) {
     count(context, 1);
     output(
@@ -105,9 +110,10 @@ function verbs(operations) {
 
 export const repoDomain = {
   name: 'repo',
-  summary: 'Discover repositories and files through GitHub APIs',
+  summary: 'Discover repositories, open issues and files through GitHub APIs',
   usage: [
     'gh-manager repo list --org <org> | --user <login> [--include-archived] [--include-forks] --json',
+    'gh-manager repo issues --user <login> | --org <org> [--no-include-archived] [--no-include-forks] --json',
     'gh-manager repo files owner/repo --match <glob>... [--content] [--branch <ref>]',
   ],
   verbs: verbs(repoVerbs),

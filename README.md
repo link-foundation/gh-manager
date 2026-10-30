@@ -449,12 +449,24 @@ Discover repositories, selected files, Actions runs and log evidence without clo
 ```bash
 gh-manager repo list --org link-foundation --json
 gh-manager repo list --user konard --include-archived --include-forks --json
+gh-manager repo issues --user A-ST-RA --json
+gh-manager repo issues --org link-foundation --json
 gh-manager repo files link-foundation/project --match '**/manifest.json' --match '.github/workflows/*.yml' --content
 gh-manager runs list link-foundation/project --workflow release.yml --branch main --status failure
 gh-manager runs logs https://github.com/link-foundation/project/actions/runs/123 --grep 'CALLER_ERROR'
 gh-manager runs logs 123 --repo link-foundation/project --grep 'CALLER_ERROR'
 gh-manager runs failures --org link-foundation --grep 'CALLER_ERROR' --json
 ```
+
+`repo issues` lists open issues across all repositories owned by exactly one
+`--user` or `--org`, including forks and archived repositories by default.
+Use `--no-include-forks` or `--no-include-archived` to exclude them. Repository
+and issue pages are fully paginated; pull requests are excluded. Each issue
+retains GitHub's fields and adds `repository` (`owner/name`). An empty result is
+`[]`; API errors fail the command rather than returning an incomplete list.
+Public repositories are available without a token; private repositories require
+a token with access. The same operation is available as
+`repos({ rest }).issues({ user: 'A-ST-RA' })` in the library.
 
 Repository listing omits archived repositories and forks by default. File globs support `*`, `?` and `**`; content is read by immutable blob SHA, with subtree traversal when GitHub truncates a recursive tree. Run listing follows pagination. `runs failures` inspects the latest default-branch run of each workflow before checking failure logs, so a recovered workflow is not reported from an older failure. It shares health's `--retention-days` cutoff.
 

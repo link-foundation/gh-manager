@@ -110,6 +110,34 @@ export function createRepoManager({ rest, log } = {}) {
       );
     },
 
+    /** List open issues across every selected owned repository, excluding PRs. */
+    async issues({
+      includeArchived = true,
+      includeForks = true,
+      ...owner
+    } = {}) {
+      const repositories = await createRepoManager({ rest, log }).list({
+        ...owner,
+        includeArchived,
+        includeForks,
+      });
+      const issues = [];
+      for (const repository of repositories) {
+        const target = repositoryTarget(repository.full_name);
+        const path = `${repoPath(target)}/issues`;
+        log?.debug(`repos API: GET ${path}`);
+        const items = await pages(rest, path, undefined, {
+          query: { state: 'open' },
+        });
+        issues.push(
+          ...items
+            .filter((item) => !item.pull_request)
+            .map((item) => ({ ...item, repository: repository.full_name }))
+        );
+      }
+      return issues;
+    },
+
     async files(target, { match = [], content = false, ref } = {}) {
       const patterns = match.map(fileMatcher);
       if (!patterns.length) {

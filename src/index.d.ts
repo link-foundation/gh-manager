@@ -645,10 +645,22 @@ export interface RepositoryFile {
 }
 export interface RepoManager {
   list(options: RepositoryListOptions): Promise<RepositoryInfo[]>;
+  /** Open issues across owned repositories; includes forks and archives by default. */
+  issues(options: RepositoryListOptions): Promise<RepositoryIssue[]>;
   files(
     repo: Repository | string,
     options: { match: string[]; content?: boolean; ref?: string }
   ): Promise<RepositoryFile[]>;
+}
+export interface RepositoryIssue {
+  id: number;
+  number: number;
+  title: string;
+  body?: string | null;
+  state: 'open';
+  html_url: string;
+  repository: string;
+  [key: string]: unknown;
 }
 export declare function createRepoManager(
   options: GitHubServiceOptions
