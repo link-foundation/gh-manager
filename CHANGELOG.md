@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0
+
+### Minor Changes
+
+- 5dc89d2: Add `repo issues --user <login> | --org <org>` and `repos().issues()`
+  to list open issues across all owned repositories, with full pagination and
+  pull request exclusion.
+
 ## 1.3.0
 
 ### Minor Changes
