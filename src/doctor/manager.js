@@ -33,11 +33,8 @@ async function auditBranchRules(entry, target, options) {
     entry.findings.push(...plan.findings);
     plans.set(entry.repository, plan);
   } catch (error) {
-    if (error.exitCode === EXIT_CODES.USAGE && !branch) {
-      entry.errors.push({ error: error.message });
-      return;
-    }
-    throw error;
+    // Keep the other findings of this repository; the scan continues.
+    entry.errors.push({ source: 'branch-rules', error: error.message });
   }
 }
 

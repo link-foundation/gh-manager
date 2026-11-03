@@ -127,3 +127,17 @@ describe('doctor --from on the command line', () => {
     expect(result.code).toBe(2);
   });
 });
+
+describe('doctor --from error isolation', () => {
+  it('records a branch the policy does not cover as a repository error', async () => {
+    const api = driftApi();
+    const report = await doctor(api).scan(
+      { repo: REPO },
+      { policy: desiredPolicy(), branch: 'release' }
+    );
+    expect(report.exitCode).toBe(1);
+    expect(report.repositories[0].repository).toBe(REPO);
+    expect(report.repositories[0].errors[0].source).toBe('branch-rules');
+    expect(api.writes()).toEqual([]);
+  });
+});
