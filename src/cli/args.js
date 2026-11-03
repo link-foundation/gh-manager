@@ -62,6 +62,8 @@ export const FLAG_SPECS = {
   from: { key: 'from', type: 'string' },
   name: { key: 'name', type: 'string' },
   rule: { key: 'rules', type: 'string', multiple: true },
+  ruleset: { key: 'ruleset', type: 'number' },
+  plan: { key: 'plan', type: 'string' },
   timeout: { key: 'timeout', type: 'number' },
   json: { key: 'json', type: 'boolean' },
   verbose: { key: 'verbose', type: 'boolean' },

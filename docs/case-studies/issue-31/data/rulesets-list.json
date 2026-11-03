@@ -1,0 +1,21 @@
+[
+  {
+    "id": 24860631,
+    "name": "Main requires same-commit seven-language CI",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "link-foundation/links-notation",
+    "enforcement": "active",
+    "node_id": "RRS_lACqUmVwb3NpdG9yec4NEt1IzgF7V9c",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/link-foundation/links-notation/rulesets/24860631"
+      },
+      "html": {
+        "href": "https://github.com/link-foundation/links-notation/rules/24860631"
+      }
+    },
+    "created_at": "2026-10-11T01:04:44.941Z",
+    "updated_at": "2026-10-11T01:04:45.008Z"
+  }
+]
