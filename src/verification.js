@@ -8,6 +8,8 @@
  * loop below, and neither sleeps for a guessed number of milliseconds.
  */
 
+import { CliError, EXIT_CODES } from './exit-codes.js';
+
 /** How long to keep re-reading the API before calling a change unverified. */
 export const VERIFICATION_TIMEOUT_MS = 15000;
 
@@ -61,4 +63,29 @@ export async function pollUntil({
   }
 
   return { value, accepted: true };
+}
+
+/**
+ * Poll until GitHub reports the expected value, or fail verification.
+ * @param {Object} options - Polling options
+ * @param {() => Promise<any>} options.read - Reads the current value
+ * @param {(value: any) => boolean} options.accept - Decides whether to stop
+ * @param {number} options.timeout - Total time to keep polling, in ms
+ * @param {string} options.description - What GitHub should confirm
+ * @returns {Promise<any>} The accepted reading
+ */
+export async function confirmUntil({ read, accept, timeout, description }) {
+  const result = await pollUntil({
+    read,
+    accept,
+    timeout,
+    interval: VERIFICATION_INTERVAL_MS,
+  });
+  if (!result.accepted) {
+    throw new CliError(
+      `GitHub did not confirm ${description}.`,
+      EXIT_CODES.VERIFICATION_FAILED
+    );
+  }
+  return result.value;
 }

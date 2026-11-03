@@ -1,10 +1,6 @@
 import { CliError, EXIT_CODES } from '../exit-codes.js';
 import { repoPath } from '../github/rest.js';
-import {
-  pollUntil,
-  VERIFICATION_TIMEOUT_MS,
-  VERIFICATION_INTERVAL_MS,
-} from '../verification.js';
+import { confirmUntil, VERIFICATION_TIMEOUT_MS } from '../verification.js';
 import { ProtectionApi } from './api.js';
 import { classicProtected, planClassic } from './classic.js';
 import {
@@ -229,20 +225,13 @@ class ProtectionManager {
     }
   }
 
-  async verify(read, accept, description) {
-    const result = await pollUntil({
+  verify(read, accept, description) {
+    return confirmUntil({
       read,
       accept,
       timeout: this.verificationTimeout,
-      interval: VERIFICATION_INTERVAL_MS,
+      description,
     });
-    if (!result.accepted) {
-      throw new CliError(
-        `GitHub did not confirm ${description}.`,
-        EXIT_CODES.VERIFICATION_FAILED
-      );
-    }
-    return result.value;
   }
 
   async writeRuleset(entry) {

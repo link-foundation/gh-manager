@@ -12,11 +12,7 @@ import { createHash } from 'node:crypto';
 import { CliError, EXIT_CODES } from '../exit-codes.js';
 import { repoPath } from '../github/rest.js';
 import { createRepoManager } from '../github/repos.js';
-import {
-  pollUntil,
-  VERIFICATION_INTERVAL_MS,
-  VERIFICATION_TIMEOUT_MS,
-} from '../verification.js';
+import { confirmUntil, VERIFICATION_TIMEOUT_MS } from '../verification.js';
 import { ProtectionApi } from './api.js';
 import { sameValue } from './policy.js';
 import {
@@ -603,20 +599,13 @@ class RulesetDrift {
     return plan;
   }
 
-  async verify(read, accept, description) {
-    const result = await pollUntil({
+  verify(read, accept, description) {
+    return confirmUntil({
       read,
       accept,
       timeout: this.verificationTimeout,
-      interval: VERIFICATION_INTERVAL_MS,
+      description,
     });
-    if (!result.accepted) {
-      throw new CliError(
-        `GitHub did not confirm ${description}.`,
-        EXIT_CODES.VERIFICATION_FAILED
-      );
-    }
-    return result.value;
   }
 
   async write(plan) {
