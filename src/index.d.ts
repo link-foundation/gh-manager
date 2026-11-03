@@ -946,6 +946,174 @@ export declare function createProtectionManager(options: {
 
 export declare const DEFAULT_PROTECTION_RULES: readonly Readonly<ProtectionRule>[];
 
+/** App id of GitHub Actions, the integration behind workflow check runs. */
+export declare const GITHUB_ACTIONS_APP_ID: 15368;
+
+/** A required status check, optionally bound to one app integration. */
+export interface RequiredCheck {
+  context: string;
+  integration_id?: number;
+}
+
+/** A required check GitHub enforces, with the source that enforces it. */
+export interface EffectiveCheck extends RequiredCheck {
+  source: {
+    type: 'Repository' | 'Organization' | 'Classic' | string;
+    name: string;
+    rulesetId?: number;
+  };
+}
+
+/** A reviewed ruleset document limited to the branches it names. */
+export interface ScopedRulesetDocument {
+  name: string;
+  target?: 'branch';
+  enforcement?: 'active';
+  conditions: { ref_name: { include: string[]; exclude?: string[] } };
+  bypass_actors?: [];
+  rules: ProtectionRule[];
+}
+
+/** One branch-rules doctor finding produced by the drift audit. */
+export interface BranchRulesFinding {
+  source: 'branch-rules';
+  setting:
+    | 'required-status-check'
+    | 'required-check-app'
+    | 'required-check-workflow'
+    | 'ruleset-rule'
+    | 'ruleset-enforcement'
+    | 'ruleset-scope'
+    | 'ruleset-target'
+    | 'ruleset-bypass-actors'
+    | 'protection-evidence'
+    | 'administration-permission'
+    | string;
+  context?: string;
+  current: string;
+  required: string;
+  fixable: boolean;
+  resolved: boolean;
+  reason?: string;
+  evidence: Array<{
+    kind: 'file' | 'check-run';
+    file?: string;
+    line?: number;
+    sha?: string;
+    text: string;
+  }>;
+}
+
+/** A reviewed, fingerprinted plan for one repository and branch. */
+export interface RulesetDriftPlan {
+  repository: string;
+  branch: string;
+  headSha: string;
+  action: 'update' | 'create' | 'no change' | 'blocked' | 'skipped' | 'failed';
+  reason?: string;
+  ruleset?: { id: number; name: string } | null;
+  checks?: {
+    desired: RequiredCheck[];
+    effective: EffectiveCheck[];
+    missing: string[];
+    wrongIntegration: string[];
+    extra: string[];
+    blocked: string[];
+  };
+  findings: BranchRulesFinding[];
+  warnings: string[];
+  changes: string[];
+  conflicts: string[];
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  writable: boolean;
+  compliant: boolean;
+  fallback?: { body: string; browser: string; api: string };
+  fingerprint: string;
+}
+
+export interface RulesetDriftResult extends RulesetDriftPlan {
+  changed: boolean;
+  verified?: boolean;
+  id?: number;
+  exitCode?: number;
+  readBack?: {
+    ruleset: Record<string, unknown>;
+    effectiveChecks: EffectiveCheck[];
+  };
+}
+
+/** Audit and scope-preserving repair of required-check drift. */
+export interface RulesetDrift {
+  plan(
+    repo: Repository,
+    document: ScopedRulesetDocument,
+    options?: { branch?: string; rulesetId?: number }
+  ): Promise<RulesetDriftPlan>;
+  apply(
+    plan: RulesetDriftPlan,
+    document: ScopedRulesetDocument,
+    options?: {
+      confirm?: (plan: RulesetDriftPlan) => boolean | Promise<boolean>;
+      savedPlan?: { fingerprint: string };
+    }
+  ): Promise<RulesetDriftResult>;
+}
+
+export declare function createRulesetDrift(options: {
+  rest: RestClient;
+  log?: { debug: (message: string) => void };
+  verificationTimeout?: number;
+}): RulesetDrift;
+
+/** Whether a --from document is a scoped (conditions-bearing) ruleset. */
+export declare function isScopedDocument(document: unknown): boolean;
+export declare function desiredChecks(
+  policy: ScopedRulesetDocument
+): RequiredCheck[];
+export declare function effectiveChecks(
+  effectiveRules: Array<Record<string, unknown>>,
+  classic?: Record<string, unknown> | null
+): EffectiveCheck[];
+export declare function compareChecks(
+  desired: RequiredCheck[],
+  effective: EffectiveCheck[]
+): {
+  missing: RequiredCheck[];
+  wrongIntegration: Array<
+    RequiredCheck & {
+      current: Array<{
+        integration_id?: number;
+        source: EffectiveCheck['source'];
+      }>;
+      currentLabel: string;
+    }
+  >;
+  satisfied: RequiredCheck[];
+  extra: string[];
+};
+
+/** A job that reports a check name, and whether pull requests reach it. */
+export interface WorkflowProducer {
+  file: string;
+  line: number;
+  job: string;
+  name: string;
+  pullRequest: boolean;
+  matrix?: boolean;
+  regex?: RegExp;
+}
+export declare function workflowProducers(
+  files: Array<{ path: string; content: string }>
+): { producers: WorkflowProducer[]; errors: string[] };
+export declare function classifyCheck(
+  context: string,
+  producers: WorkflowProducer[]
+): {
+  status: 'ok' | 'matrix' | 'push-only' | 'missing';
+  evidence: Array<{ kind: 'file'; file: string; line: number; text: string }>;
+};
+
 export interface PagesSource {
   build_type: 'workflow' | 'legacy';
   source?: { branch: string; path: '/' | '/docs' };
@@ -995,7 +1163,19 @@ export interface DoctorFinding {
 }
 export interface DoctorRepository {
   repository: string;
-  findings: DoctorFinding[];
+  findings: Array<DoctorFinding | BranchRulesFinding>;
+  /** Present when the scan was given a reviewed ruleset (`policy`). */
+  branchRules?: Pick<
+    RulesetDriftPlan,
+    | 'branch'
+    | 'headSha'
+    | 'action'
+    | 'ruleset'
+    | 'checks'
+    | 'changes'
+    | 'warnings'
+    | 'fallback'
+  > & { readBack?: RulesetDriftResult['readBack'] };
   errors: Array<Record<string, unknown>>;
   reruns: Array<{
     runId: number;
@@ -1020,6 +1200,10 @@ export interface Doctor {
       rerun?: boolean;
       includeArchived?: boolean;
       includeForks?: boolean;
+      /** Reviewed scoped ruleset to compare with each repository's branch. */
+      policy?: ScopedRulesetDocument;
+      branch?: string;
+      rulesetId?: number;
       confirm?: (
         plan: Array<DoctorFinding & { repository: string }>
       ) => boolean | Promise<boolean>;
@@ -1034,6 +1218,7 @@ export declare function createDoctor(options: {
   repos?: RepoManager;
   runs?: RunManager;
   pages?: PagesManager;
+  drift?: RulesetDrift;
 }): Doctor;
 
 /** Scope of a non-secret Actions variable. Environment scope requires a repository. */

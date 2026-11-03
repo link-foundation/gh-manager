@@ -9,7 +9,8 @@ export async function repairRepository(
   const repo = repositoryTarget(entry.repository);
   const settings = gateway(repo);
   for (const finding of entry.findings) {
-    if (!finding.fixable) {
+    // Branch-rules findings are applied by the ruleset drift repair.
+    if (!finding.fixable || finding.source === 'branch-rules') {
       continue;
     }
     try {
@@ -32,7 +33,9 @@ export async function repairRepository(
   }
   const runIds = new Set(
     entry.findings
-      .filter((f) => f.resolved && f.result.changed)
+      .filter(
+        (f) => f.source !== 'branch-rules' && f.resolved && f.result?.changed
+      )
       .flatMap((f) =>
         f.evidence.filter((e) => e.kind === 'log').map((e) => e.runId)
       )

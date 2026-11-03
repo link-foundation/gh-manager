@@ -9,7 +9,10 @@ import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 import { createRestClient } from '../../src/github/rest.js';
 
-const DATA = new URL('../../docs/case-studies/issue-31/data/', import.meta.url);
+const DATA = new URL(
+  '../../docs/case-studies/required-check-drift/data/',
+  import.meta.url
+);
 const read = (name) => readFileSync(new URL(name, DATA), 'utf8');
 export const liveData = (name) => JSON.parse(read(name));
 
@@ -70,6 +73,7 @@ const covers = (ruleset, branch) =>
  * @param {Function} [options.reject] - ({path, method}) => {status, message}
  * @param {Function} [options.onRead] - Hook run before each GET, for races
  * @param {boolean} [options.hideBypass] - Omit bypass_actors like non-admins see
+ * @param {string} [options.failedLog] - Log of a failed CI run on main
  */
 export function driftApi(options = {}) {
   const state = {
@@ -85,8 +89,18 @@ export function driftApi(options = {}) {
   const reply = (body, status = 200) => ({
     ok: status < 400,
     status,
+    headers: { get: () => null },
     json: async () => JSON.parse(JSON.stringify(body)),
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
   });
+  const failedRun = {
+    id: 77,
+    status: 'completed',
+    conclusion: 'failure',
+    head_branch: 'main',
+    html_url: `https://github.com/${REPO}/actions/runs/77`,
+    updated_at: new Date().toISOString(),
+  };
   const base = `/repos/${REPO}`;
   const show = (ruleset) => {
     if (!options.hideBypass) {
@@ -146,7 +160,34 @@ export function driftApi(options = {}) {
       const branch = decodeURIComponent(path.split('/rules/branches/')[1]);
       return reply(page > 1 ? [] : effective(branch));
     }
-    if (path === `${base}/git/trees/${HEAD}`) {
+    if (path === `${base}/actions/workflows`) {
+      return reply({
+        workflows: Object.keys(state.workflows).map((file, index) => ({
+          id: index + 1,
+          path: file,
+        })),
+      });
+    }
+    const runs = path.match(/\/actions\/workflows\/([^/]+)\/runs$/);
+    if (runs) {
+      const failed = options.failedLog !== undefined && runs[1] === 'ci.yml';
+      return reply({ workflow_runs: failed ? [failedRun] : [] });
+    }
+    if (path === `${base}/actions/runs/77`) {
+      return reply(failedRun);
+    }
+    if (path === `${base}/actions/runs/77/jobs`) {
+      return reply({
+        jobs: [{ id: 78, name: 'Kotlin', conclusion: 'failure' }],
+      });
+    }
+    if (path === `${base}/actions/jobs/78/logs`) {
+      return reply(options.failedLog ?? '');
+    }
+    if (
+      path === `${base}/git/trees/${HEAD}` ||
+      path === `${base}/git/trees/main`
+    ) {
       return reply({
         sha: HEAD,
         truncated: false,
