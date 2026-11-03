@@ -50,6 +50,18 @@ export { ROLES, VISIBILITIES } from './browser/selectors.js';
 
 export { createSecretManager } from './secrets/manager.js';
 export { createProtectionManager } from './protection/manager.js';
+export { createRulesetDrift } from './protection/drift.js';
+export {
+  compareChecks,
+  desiredChecks,
+  effectiveChecks,
+  GITHUB_ACTIONS_APP_ID,
+  isScopedDocument,
+} from './protection/scoped.js';
+export {
+  classifyCheck,
+  workflowProducers,
+} from './protection/workflow-checks.js';
 export { DEFAULT_PROTECTION_RULES } from './protection/policy.js';
 export { auditWorkflows } from './secrets/audit.js';
 export { githubAppPlan } from './secrets/policy.js';

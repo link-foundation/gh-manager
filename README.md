@@ -207,6 +207,56 @@ and an optional `onPlan(plan)` callback to display the reviewed plan. Inspect
 `repositories` for per-repository failures and their `exitCode`, as one failure
 does not cancel the rest. See [the read-only organization preview](examples/protect-repositories.js).
 
+#### Reviewed scoped rulesets and required-check drift
+
+```bash
+gh-manager protect link-foundation/links-notation \
+  --from .github/main-ruleset.json --dry-run --json > plan.json
+gh-manager protect link-foundation/links-notation \
+  --from .github/main-ruleset.json --plan plan.json
+gh-manager doctor link-foundation/links-notation --from .github/main-ruleset.json
+gh-manager doctor link-foundation/links-notation --from .github/main-ruleset.json --fix --yes
+```
+
+A `--from` document with `conditions.ref_name` is a reviewed ruleset for the
+branches it names, such as a main-only `required_status_checks` policy. Its
+`bypass_actors` must be empty. `--branch` selects the audited branch (default:
+the branch when the policy names exactly one, else the default branch).
+`--ruleset <id>` picks the repository ruleset to repair when several qualify.
+
+The audit reads the effective rules on the branch (repository and inherited
+organization rulesets), every ruleset, classic branch protection, the workflow
+files at the branch head and that commit's check runs. It reports:
+
+- required contexts that are missing, or bound to a different app integration;
+- rules that are inactive (`evaluate`/`disabled`) or weaker than the policy,
+  such as lost strict (same-commit) validation;
+- unreadable evidence, such as hidden bypass actors or effective rules;
+- scope drift between the policy and the ruleset that would be repaired;
+- check names no workflow at the head commit produces, or that only a
+  push-only workflow or a matrix job produces, with file/line evidence;
+- check runs that come from a different app than the required binding.
+
+The repair edits one existing repository ruleset in place: the one named in
+`--ruleset`, the one with the policy's name, or the one already enforcing the
+branch's required checks. It keeps the ruleset's conditions, bypass actors,
+stronger parameters, extra rules and existing app bindings, adds only the
+missing contexts and settings, and never removes checks. A new ruleset with the
+policy's own conditions is created only when no repository ruleset covers the
+branch. Several candidates, a target that does not cover the branch, checks
+enforced by an organization ruleset or classic protection, and checks blocked
+by workflow or check-run evidence are reported for manual action.
+
+The dry-run plan carries a fingerprint of the ruleset it read. `--plan` applies
+only that reviewed plan and refuses it once the ruleset changed. Before writing,
+the ruleset is re-read again so a concurrent edit stops the update. After
+writing, both the saved ruleset and the branch's effective rules are re-read
+until every intended check is enforced. A repeated run reports `no change`.
+Without Administration permission, or when GitHub denies the write, the plan
+reports the browser settings page and the `gh api --method PUT` fallback using
+the plan's `after` object; nothing is retried. Ruleset repairs never rerun
+workflows: enforcing a check does not fix the failure behind it.
+
 ### auth
 
 ```bash
@@ -285,6 +335,11 @@ not rerun unrelated failures. Unresolved findings, unavailable evidence, policy
 restrictions, and repository errors produce a nonzero exit. An advanced scanning
 workflow with an entitlement/permissions problem needs manual action, since
 enabling default setup would block that workflow's uploads.
+
+`--from <reviewed ruleset>` adds the [required-check drift audit](#reviewed-scoped-rulesets-and-required-check-drift)
+for the selected branch (`--branch`, `--ruleset`) to each scanned repository.
+Its findings have `source: "branch-rules"`; `--fix` applies the same
+scope-preserving ruleset repair and never reruns workflows for it.
 
 ### pages
 

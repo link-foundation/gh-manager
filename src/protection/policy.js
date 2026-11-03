@@ -84,7 +84,7 @@ function validateDocument(document) {
   }
 }
 
-function validateRule(rule) {
+export function validateRule(rule) {
   if (
     !rule ||
     (!SIMPLE_RULES.has(rule.type) && !PARAMETER_RULES.has(rule.type)) ||
