@@ -13,7 +13,9 @@ const DATA = new URL(
   '../../docs/case-studies/required-check-drift/data/',
   import.meta.url
 );
-const read = (name) => readFileSync(new URL(name, DATA), 'utf8');
+// Windows checkouts may convert the captured files to CRLF line endings.
+const read = (name) =>
+  readFileSync(new URL(name, DATA), 'utf8').replace(/\r\n/g, '\n');
 export const liveData = (name) => JSON.parse(read(name));
 
 export const REPO = 'acme/links-notation';
