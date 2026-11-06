@@ -20,6 +20,7 @@ const EXPECTED_EXPORTS = [
   'FLAG_SPECS',
   'GITHUB_ACTIONS_APP_ID',
   'GitHubApiError',
+  'JobsUnavailableError',
   'ROLES',
   'SECURITY_FEATURES',
   'SECURITY_FEATURE_IDS',
