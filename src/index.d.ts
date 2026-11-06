@@ -672,6 +672,7 @@ export interface WorkflowRun {
   status: string;
   conclusion: string | null;
   run_attempt?: number;
+  check_suite_id?: number;
   head_branch: string;
   head_sha?: string;
   path?: string;
@@ -694,6 +695,32 @@ export interface WorkflowJob {
   status: string;
   conclusion: string | null;
   steps: WorkflowStep[];
+  run_id?: number;
+  run_attempt?: number;
+  head_sha?: string;
+  run_url?: string;
+  html_url?: string;
+  discovery?: JobDiscovery;
+}
+export interface JobDiscovery {
+  source: 'check-runs';
+  checkRunId: number;
+  /** Attempt observed while validating the inventory; jobs may be carried forward. */
+  runAttempt: number;
+}
+export interface JobsUnavailable {
+  status: 'infrastructure-unavailable';
+  reason: string;
+  repository: string;
+  runId: number;
+  runUrl: string;
+  runAttempt: number | null;
+  sha: string | null;
+  nextAction: string;
+}
+export declare class JobsUnavailableError extends CliError {
+  evidence: JobsUnavailable;
+  constructor(repo: Repository, id: number, reason: string, run?: WorkflowRun);
 }
 export interface RunListOptions {
   workflow?: string;
@@ -712,6 +739,9 @@ export interface RunLogMatch extends LogMatch {
   runUrl: string;
   jobId: number;
   job: string;
+  jobAttempt: number | null;
+  sha: string | null;
+  source: 'job-log';
 }
 export interface RunFailure {
   repository: string;
@@ -736,12 +766,14 @@ export interface RunUnknown {
   reason:
     | 'logs-expired'
     | 'logs-unavailable'
+    | 'infrastructure-unavailable'
     | 'repository-error'
     | 'workflow-error';
+  nextAction?: string;
   runId?: number;
   runUrl?: string;
   matches?: RunLogMatch[];
-  unavailableLogs?: RunLogsUnavailable[];
+  unavailableLogs?: Array<RunLogsUnavailable | JobsUnavailable>;
   error?: string;
 }
 export interface RunFailureScanOptions {
@@ -757,7 +789,7 @@ export interface RunFailureReport {
   /** Counts unavailable job logs, or one count for an unavailable/expired run. */
   unavailableLogs: {
     repository: string;
-    reason: 'logs-expired' | 'logs-unavailable';
+    reason: 'logs-expired' | 'logs-unavailable' | 'infrastructure-unavailable';
     count: number;
   }[];
   errors: RunUnknown[];
@@ -779,7 +811,13 @@ export interface RunManager {
     options?: RunListOptions
   ): Promise<WorkflowRun[]>;
   get(repo: Repository | string, id: number): Promise<WorkflowRun>;
-  jobs(repo: Repository | string, id: number): Promise<WorkflowJob[]>;
+  /** Bounded read retries, then validated check-run recovery; throws JobsUnavailableError if incomplete. */
+  jobs(
+    repo: Repository | string,
+    id: number,
+    options?: { attempt?: number }
+  ): Promise<WorkflowJob[]>;
+  job(repo: Repository | string, id: number): Promise<WorkflowJob>;
   /** Unfiltered GitHub-masked log text for callers implementing classification. */
   jobLog(
     repo: Repository | string,
@@ -792,7 +830,7 @@ export interface RunManager {
       grep?: string[];
       failedOnly?: boolean;
     }
-  ): Promise<Array<RunLogMatch | RunLogsUnavailable>>;
+  ): Promise<Array<RunLogMatch | RunLogsUnavailable | JobsUnavailable>>;
   /** Detailed results retained for existing library consumers. */
   failures(
     options: RunFailureScanOptions
@@ -801,7 +839,9 @@ export interface RunManager {
   failureReport(options: RunFailureScanOptions): Promise<RunFailureReport>;
 }
 export declare function createRunManager(
-  options: GitHubServiceOptions
+  options: GitHubServiceOptions & {
+    sleep?: (ms: number) => Promise<void> | void;
+  }
 ): RunManager;
 
 export type SecretHealthStatus =
@@ -816,6 +856,7 @@ export interface SecretHealthEvidence {
   status: SecretHealthStatus;
   reason?: string;
   error?: string;
+  infrastructure?: JobsUnavailable;
   runId?: number;
   runUrl?: string;
   jobId?: number;
@@ -1147,6 +1188,9 @@ export interface DoctorEvidence {
   runUrl?: string;
   jobId?: number;
   job?: string;
+  jobAttempt?: number | null;
+  sha?: string | null;
+  source?: 'job-log';
   line: number;
   text: string;
 }
@@ -1182,6 +1226,9 @@ export interface DoctorRepository {
     status: 'requested' | 'skipped';
     reason?: string;
     runUrl?: string;
+    jobId?: number;
+    job?: string;
+    runAttempt?: number;
   }>;
 }
 export interface DoctorReport {
@@ -1337,6 +1384,9 @@ export interface RepairJobEvidence {
   conclusion: string | null;
   url?: string;
   steps?: WorkflowStep[];
+  runAttempt?: number | null;
+  sha?: string | null;
+  discovery?: JobDiscovery;
 }
 export interface RepairVerificationResult {
   repository: string;
@@ -1346,11 +1396,13 @@ export interface RepairVerificationResult {
     | 'failure'
     | 'timeout'
     | 'verification-failed'
+    | 'infrastructure-unavailable'
     | 'prerequisite'
     | 'skipped'
     | 'dry-run';
   success: boolean;
   reason?: string;
+  nextAction?: string;
   runId?: number | null;
   runAttempt?: number | null;
   sha?: string | null;

@@ -322,6 +322,9 @@ class SecretHealthService {
           runUrl: run?.html_url,
           status: 'unknown',
           reason: unavailable?.status ?? 'evidence-unreadable',
+          ...(error.evidence
+            ? { infrastructure: error.evidence, reason: error.evidence.status }
+            : {}),
           ...(unavailable ? {} : { error: error.message }),
         },
       ];

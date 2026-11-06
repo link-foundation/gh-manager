@@ -62,8 +62,18 @@ describe('doctor reports and repairs', () => {
     expect(result.repositories[0].findings[0].result.verifiedBy).toBe('api');
     expect(api.writes().map((c) => c.path)).toEqual([
       '/repos/acme/one/pages',
-      '/repos/acme/one/actions/runs/1/rerun-failed-jobs',
+      '/repos/acme/one/actions/jobs/2/rerun',
     ]);
+  });
+  it('reruns only the causal job when an unrelated job also fails', async () => {
+    const api = doctorApi({ log: 'Get Pages site failed', otherFailure: true });
+    const result = await fix(api);
+    expect(result.remaining).toBe(0);
+    expect(api.writes().map((c) => c.path)).toEqual([
+      '/repos/acme/one/pages',
+      '/repos/acme/one/actions/jobs/2/rerun',
+    ]);
+    expect(result.repositories[0].reruns[0].jobId).toBe(2);
   });
   it('does not rerun from static evidence alone', async () => {
     const api = doctorApi({

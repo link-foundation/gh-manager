@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apiCommand } from './fixtures/cli.js';
 import { actionsApi } from './fixtures/actions-api.js';
+import { jobRecoveryApi } from './fixtures/job-recovery-api.js';
 
 const evidence = {
   repo: 'acme/one',
@@ -27,11 +28,21 @@ async function command(input, api, flags = []) {
   }
 }
 describe('repair verification CLI', () => {
+  it('prints infrastructure status, run URL and next action with a nonzero exit', async () => {
+    const api = jobRecoveryApi({ mutateChecks: () => [] });
+    const result = await command(evidence, api);
+    const output = JSON.parse(result.output);
+    expect(result.code).toBe(6);
+    expect(output.status).toBe('infrastructure-unavailable');
+    expect(output.runUrl).toBe(api.run.html_url);
+    expect(Boolean(output.nextAction)).toBe(true);
+    expect(api.calls.every((c) => c.method === 'GET')).toBe(true);
+  });
   it('prints final evidence and nonzero status for an unobserved rerun', async () => {
     const api = actionsApi({
       conclusion: 'failure',
       routes: {
-        'POST /repos/acme/one/actions/runs/1/rerun-failed-jobs': {
+        'POST /repos/acme/one/actions/jobs/2/rerun': {
           status: 201,
         },
       },
