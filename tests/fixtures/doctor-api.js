@@ -9,6 +9,7 @@ export function doctorApi({
   inaccessible = false,
   ineffective = false,
   logsMissing = false,
+  otherFailure = false,
   defaultSetup = 'not-configured',
   site = { build_type: 'legacy' },
   workflows = [{ id: 7, path: '.github/workflows/ci.yml' }],
@@ -24,6 +25,7 @@ export function doctorApi({
     id: 1,
     status: 'completed',
     conclusion,
+    run_attempt: 1,
     head_branch: 'main',
     html_url: 'https://github.com/acme/one/actions/runs/1',
     updated_at: new Date().toISOString(),
@@ -62,8 +64,18 @@ export function doctorApi({
       status: 200,
       body: {
         jobs: [
-          { id: 2, name: 'Check', conclusion: 'failure' },
-          { id: 3, name: 'Good', conclusion: 'success' },
+          { id: 2, name: 'Check', status: 'completed', conclusion: 'failure' },
+          { id: 3, name: 'Good', status: 'completed', conclusion: 'success' },
+          ...(otherFailure
+            ? [
+                {
+                  id: 4,
+                  name: 'Other',
+                  status: 'completed',
+                  conclusion: 'failure',
+                },
+              ]
+            : []),
         ],
       },
     },
@@ -74,6 +86,10 @@ export function doctorApi({
     '/repos/acme/one/actions/jobs/3/logs': {
       status: 200,
       body: 'Get Pages site failed',
+    },
+    '/repos/acme/one/actions/jobs/4/logs': {
+      status: 200,
+      body: 'unrelated authentication failure',
     },
     '/repos/acme/one/pages': () =>
       pages ? { status: 200, body: pages } : { status: 404, body: {} },
@@ -119,7 +135,7 @@ export function doctorApi({
       }
       return { status: 202, body: {} };
     },
-    'POST /repos/acme/one/actions/runs/1/rerun-failed-jobs': {
+    'POST /repos/acme/one/actions/jobs/2/rerun': {
       status: 201,
       body: {},
     },

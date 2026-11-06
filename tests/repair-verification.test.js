@@ -28,7 +28,7 @@ function fixture({
   const api = actionsApi({
     conclusion: 'failure',
     routes: {
-      'POST /repos/acme/one/actions/runs/1/rerun-failed-jobs': () => {
+      'POST /repos/acme/one/actions/jobs/2/rerun': () => {
         requested = true;
         return { status: 201 };
       },

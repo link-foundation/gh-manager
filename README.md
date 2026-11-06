@@ -556,6 +556,12 @@ conclusion and job evidence. Workflow code changes require an updated revision;
 missing job permissions are code prerequisites. Registry policy and OIDC
 publication verification stay with the caller.
 
+Actions job-list outages use bounded retries and validated check-run discovery.
+Selected job IDs are refreshed between attempts; incomplete evidence reports
+`infrastructure-unavailable` with the run URL and a next action. See the
+[recovery contract](docs/actions-variables-and-repair.md#job-list-infrastructure-recovery)
+and [read-only discovery example](examples/discover-actions-jobs.js).
+
 See the [complete API/CLI contract and regression inventory](docs/actions-variables-and-repair.md)
 and [programmatic example](examples/ensure-actions-variable.js). Shared organization
 secret cleanup now also requires a complete consumer audit, in addition to caller

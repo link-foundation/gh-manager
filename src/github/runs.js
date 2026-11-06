@@ -10,6 +10,7 @@ import {
 import { createRepoManager } from './repos.js';
 import { expiredRun, unavailableLogs, validateRetentionDays } from './logs.js';
 import { failureReport } from './failure-report.js';
+import { discoverJobs, retryJobRead, JobsUnavailableError } from './jobs.js';
 
 function runTarget(run, repo) {
   const url = String(run).match(
@@ -26,7 +27,7 @@ function runTarget(run, repo) {
 }
 
 /** Stable Actions discovery service. Log results contain matched, redacted lines. */
-export function createRunManager({ rest, log, now = Date.now } = {}) {
+export function createRunManager({ rest, log, now = Date.now, sleep } = {}) {
   const manager = {
     list(target, { workflow, branch, status, event, limit } = {}) {
       const base = `${repoPath(repositoryTarget(target))}/actions`;
@@ -46,12 +47,34 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
         `${repoPath(repositoryTarget(target))}/actions/runs/${id}`
       );
     },
-    jobs(target, id) {
-      return pages(
+    jobs(target, id, { attempt } = {}) {
+      if (
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        (attempt !== undefined &&
+          (!Number.isSafeInteger(attempt) || attempt <= 0))
+      ) {
+        throw new CliError(
+          'Supply positive run and attempt IDs.',
+          EXIT_CODES.USAGE
+        );
+      }
+      return discoverJobs({
         rest,
-        `${repoPath(repositoryTarget(target))}/actions/runs/${id}/jobs`,
-        'jobs',
-        { query: { filter: 'latest' } }
+        repo: repositoryTarget(target),
+        id,
+        attempt,
+        sleep,
+        log,
+      });
+    },
+    job(target, id) {
+      return retryJobRead(
+        () =>
+          rest.request(
+            `${repoPath(repositoryTarget(target))}/actions/jobs/${id}`
+          ),
+        { sleep, log }
       );
     },
     jobLog(target, id) {
@@ -73,6 +96,9 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
       try {
         jobs = await manager.jobs(target.repo, target.id);
       } catch (error) {
+        if (error instanceof JobsUnavailableError) {
+          return [{ ...location, ...error.evidence, url: runUrl }];
+        }
         const unavailable = unavailableLogs(error.status, error.path);
         if (!unavailable) {
           throw error;
@@ -101,6 +127,9 @@ export function createRunManager({ rest, log, now = Date.now } = {}) {
             runUrl,
             jobId: job.id,
             job: job.name,
+            jobAttempt: job.run_attempt ?? null,
+            sha: job.head_sha ?? null,
+            source: 'job-log',
             ...line,
           });
         }
@@ -175,6 +204,8 @@ async function workflowFailure(manager, target, workflow, options) {
     workflow: workflow.path,
     runId: latest.id,
     runUrl: latest.html_url,
+    runAttempt: latest.run_attempt,
+    sha: latest.head_sha,
   };
   if (expiredRun(latest, retentionDays, now)) {
     return {
@@ -198,7 +229,13 @@ async function workflowFailure(manager, target, workflow, options) {
     ...location,
     status: missing.length ? 'unknown' : 'failure',
     ...(missing.length
-      ? { reason: missing[0].status, unavailableLogs: missing }
+      ? {
+          reason: missing[0].status,
+          unavailableLogs: missing,
+          ...(missing[0].status === 'infrastructure-unavailable'
+            ? { nextAction: missing[0].nextAction, error: missing[0].reason }
+            : {}),
+        }
       : {}),
     matches,
   };

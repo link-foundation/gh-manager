@@ -1,9 +1,10 @@
 import { CliError, EXIT_CODES } from '../exit-codes.js';
-import { repositoryTarget, pages } from '../github/discovery.js';
+import { repositoryTarget } from '../github/discovery.js';
 import { repoPath } from '../github/rest.js';
 import { repoSlug } from '../github/repo.js';
 import { createRunManager } from '../github/runs.js';
 import { delay } from '../verification.js';
+import { JobsUnavailableError, validJob } from '../github/jobs.js';
 import {
   repairInput,
   matchesWorkflow,
@@ -18,14 +19,29 @@ function evidence(run, jobs = []) {
     sha: run?.head_sha ?? null,
     conclusion: run?.conclusion ?? null,
     runUrl: run?.html_url ?? null,
-    jobs: jobs.map(({ id, name, status, conclusion, html_url, steps }) => ({
-      id,
-      name,
-      status,
-      conclusion,
-      url: html_url,
-      steps,
-    })),
+    jobs: jobs.map(
+      ({
+        id,
+        name,
+        status,
+        conclusion,
+        html_url,
+        steps,
+        run_attempt,
+        head_sha,
+        discovery,
+      }) => ({
+        id,
+        name,
+        status,
+        conclusion,
+        url: html_url,
+        steps,
+        runAttempt: run_attempt ?? null,
+        sha: head_sha ?? null,
+        discovery,
+      })
+    ),
   };
 }
 
@@ -37,7 +53,7 @@ class RepairVerifier {
       log,
       now,
       sleep,
-      runs: createRunManager({ rest, log }),
+      runs: createRunManager({ rest, log, sleep }),
     });
   }
   async waitFor(read, accept, deadline, interval) {
@@ -64,17 +80,26 @@ class RepairVerifier {
       async () => {
         const run = await this.runs.get(repo, runId);
         if (run.run_attempt <= previousAttempt || run.status !== 'completed') {
-          return { run, jobs: [] };
+          return { run, jobs: [], stable: false };
         }
-        const jobs = await pages(
-          this.rest,
-          `${repoPath(repo)}/actions/runs/${runId}/attempts/${run.run_attempt}/jobs`,
-          'jobs'
-        );
-        return { run, jobs };
+        const jobs = await this.runs.jobs(repo, runId, {
+          attempt: run.run_attempt,
+        });
+        const after = await this.runs.get(repo, runId);
+        const stable = [
+          'id',
+          'head_sha',
+          'run_attempt',
+          'status',
+          'conclusion',
+          'path',
+        ].every((key) => after[key] === run[key]);
+        return { run: after, jobs: stable ? jobs : [], stable };
       },
-      ({ run }) =>
-        run.run_attempt > previousAttempt && run.status === 'completed',
+      ({ run, stable }) =>
+        stable &&
+        run.run_attempt > previousAttempt &&
+        run.status === 'completed',
       deadline,
       input.interval
     );
@@ -93,6 +118,12 @@ class RepairVerifier {
     }
     const successful =
       run.conclusion === 'success' &&
+      jobs.every(
+        (job) =>
+          (job.run_attempt === undefined ||
+            job.run_attempt === run.run_attempt) &&
+          (job.head_sha === undefined || job.head_sha === run.head_sha)
+      ) &&
       names.every((name) =>
         jobs.some(
           (job) =>
@@ -130,6 +161,59 @@ class RepairVerifier {
     return run.head_sha;
   }
   async verify(options) {
+    try {
+      return await this.verifyAvailable(options);
+    } catch (error) {
+      if (!(error instanceof JobsUnavailableError)) {
+        throw error;
+      }
+      return { workflow: options.workflow, ...error.evidence, success: false };
+    }
+  }
+  async selectedJobs(repo, run, jobs, ids) {
+    const selected = [];
+    for (const id of ids) {
+      let original = jobs.find((job) => job.id === id);
+      if (!original) {
+        try {
+          original = await this.runs.job(repo, id);
+        } catch (error) {
+          if (error.status === 404) {
+            throw new CliError(
+              'Affected job evidence does not identify a failed job in this run.',
+              EXIT_CODES.USAGE
+            );
+          }
+          throw new JobsUnavailableError(
+            repo,
+            run.id,
+            'selected-job-unavailable',
+            run
+          );
+        }
+        if (!validJob(original, repo, run, id)) {
+          throw new JobsUnavailableError(
+            repo,
+            run.id,
+            'selected-job-provenance-mismatch',
+            run
+          );
+        }
+      }
+      const matching = jobs.filter((job) => job.name === original.name);
+      if (matching.length !== 1) {
+        throw new JobsUnavailableError(
+          repo,
+          run.id,
+          'ambiguous-selected-job',
+          run
+        );
+      }
+      selected.push(matching[0]);
+    }
+    return [...new Map(selected.map((job) => [job.id, job])).values()];
+  }
+  async verifyAvailable(options) {
     const input = repairInput(options);
     const repo = repositoryTarget(input.repo);
     const location = { repository: repoSlug(repo), workflow: input.workflow };
@@ -142,9 +226,41 @@ class RepairVerifier {
       };
     }
     const deadline = this.now() + input.timeout;
-    const run = await this.runs.get(repo, input.runId);
+    const waiting = await this.waitFor(
+      () => this.runs.get(repo, input.runId),
+      (run) => run.status === 'completed',
+      deadline,
+      input.interval
+    );
+    const run = waiting.result;
+    if (!waiting.accepted) {
+      return {
+        ...location,
+        status: 'timeout',
+        success: false,
+        reason: 'active-attempt',
+        ...evidence(run),
+      };
+    }
     const jobs = await this.runs.jobs(repo, input.runId);
-    if (!validateRun(run, jobs, input)) {
+    const selected = (
+      await this.selectedJobs(repo, run, jobs, input.jobIds)
+    ).filter((job) => job.conclusion !== 'success');
+    if (!selected.length) {
+      return {
+        ...location,
+        status: 'skipped',
+        success: false,
+        reason: 'jobs-no-longer-failed',
+        ...evidence(run, jobs),
+      };
+    }
+    if (
+      !validateRun(run, jobs, {
+        ...input,
+        jobIds: selected.map((job) => job.id),
+      })
+    ) {
       return {
         ...location,
         status: 'skipped',
@@ -153,9 +269,7 @@ class RepairVerifier {
         ...evidence(run, jobs),
       };
     }
-    const names = jobs
-      .filter((job) => input.jobIds.includes(job.id))
-      .map((job) => job.name);
+    const names = selected.map((job) => job.name);
     const expectedSha = await this.expectedSha(repo, input, run);
     const prerequisites = await codePrerequisites(
       this.rest,
@@ -279,36 +393,54 @@ class RepairVerifier {
     });
   }
 
-  async rerun({ repo, input, run, jobs, names, expectedSha, deadline }) {
-    const failed = jobs.filter((job) =>
-      ['failure', 'timed_out', 'cancelled'].includes(job.conclusion)
-    );
-    if (failed.every((job) => input.jobIds.includes(job.id))) {
-      await this.rest.request(
-        `${repoPath(repo)}/actions/runs/${input.runId}/rerun-failed-jobs`,
-        { method: 'POST' }
-      );
-      return this.finish({
-        repo,
-        input,
-        runId: input.runId,
-        previousAttempt: run.run_attempt,
-        expectedSha,
-        names,
-        deadline,
-      });
-    }
-    // A subset uses job reruns, including dependents, in sequential attempts.
+  async rerun({ repo, input, run, names, expectedSha, deadline }) {
+    // Job reruns include normal dependents; never widen to every failed job.
     const attempts = [];
     let current = run;
     for (const name of names) {
+      const waiting = await this.waitFor(
+        () => this.runs.get(repo, input.runId),
+        (run) => run.status === 'completed',
+        deadline,
+        input.interval
+      );
+      current = waiting.result;
+      if (!waiting.accepted) {
+        return {
+          status: 'timeout',
+          success: false,
+          attempts,
+          ...evidence(current),
+        };
+      }
+      if (
+        current.head_sha !== expectedSha ||
+        !matchesWorkflow(current, input.workflow)
+      ) {
+        throw new JobsUnavailableError(
+          repo,
+          input.runId,
+          'run-changed-before-rerun',
+          current
+        );
+      }
       const latestJobs = await this.runs.jobs(repo, input.runId);
-      const job = latestJobs.find((item) => item.name === name);
+      const matching = latestJobs.filter((item) => item.name === name);
+      if (matching.length !== 1) {
+        throw new JobsUnavailableError(
+          repo,
+          input.runId,
+          'ambiguous-selected-job',
+          current
+        );
+      }
+      const job = matching[0];
       if (job?.conclusion === 'success') {
         continue;
       }
       if (
-        !job ||
+        job.status !== 'completed' ||
+        !['failure', 'timed_out', 'cancelled'].includes(job.conclusion) ||
         current.status !== 'completed' ||
         (attempts.length > 0 && this.now() >= deadline)
       ) {
@@ -318,6 +450,20 @@ class RepairVerifier {
           attempts,
           ...evidence(current, latestJobs),
         };
+      }
+      const before = await this.runs.get(repo, input.runId);
+      if (
+        before.status !== 'completed' ||
+        before.run_attempt !== current.run_attempt ||
+        before.head_sha !== expectedSha ||
+        (job.discovery && job.discovery.runAttempt !== current.run_attempt)
+      ) {
+        throw new JobsUnavailableError(
+          repo,
+          input.runId,
+          'run-changed-before-rerun',
+          before
+        );
       }
       await this.rest.request(
         `${repoPath(repo)}/actions/jobs/${job.id}/rerun`,

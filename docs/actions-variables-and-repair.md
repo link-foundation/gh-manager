@@ -110,11 +110,12 @@ if (result.status !== 'success') {
 
 The caller supplies the run and affected failed job IDs, discovered with `runs`.
 Their workflow, membership and failed status are checked again before starting
-CI. Every supplied change must be verified. A no-op skips all CI writes. If all
-failed jobs are selected, the verifier requests `rerun-failed-jobs`; a subset uses
-individual job reruns, including GitHub's automatic dependent-job reruns, and waits
-between attempts. No other workflow is selected. An already successful or active
-run is skipped. A concurrent rerun rejection remains an error.
+CI. Every supplied change must be verified. A no-op skips all CI writes. The
+verifier requests individual job reruns, including GitHub's automatic dependent
+job reruns, and waits between attempts. It refreshes job identities before each
+request, including IDs supplied from older attempts. A successful selected job
+is skipped. An active attempt is polled within the caller's deadline. No other
+workflow is selected. A concurrent rerun rejection remains an error.
 
 Settings-only repair reuses the failed run's SHA. It waits for an incremented
 `run_attempt` and reads the jobs of that exact attempt. Successful HTTP acceptance
@@ -124,6 +125,47 @@ and timeout cannot become success. Results include `runId`, `runAttempt`, `sha`,
 `conclusion`, `runUrl`, and job/step evidence. A subset may fix the selected job
 while another job keeps the overall run conclusion failed; that result remains
 `success:false`.
+
+### Job-list infrastructure recovery
+
+`createRunManager({ rest, log }).jobs(repo, runId)` preserves its array result.
+Both latest-view and `.jobs(repo, runId, { attempt })` reads retry transient HTTP
+5xx failures twice (250 ms, then 500 ms). Mutations and authorization errors are
+never automatically retried. Debug messages use the optional logger and are off
+by default.
+
+If the job list remains unavailable, discovery reads all source commit check-runs
+with `filter=all`, selects the run's check suite, and validates each Actions URL
+and individual job response against the exact repository, run ID, SHA and attempt.
+Pagination must be complete. Another run on the same SHA cannot supply evidence.
+Historical identities are resolved by job name and highest validated attempt;
+duplicate names within an attempt are ambiguous and stop recovery. The run is
+read again to detect an attempt changing during discovery. Earlier jobs carried
+forward by partial reruns keep their original `run_attempt`.
+
+Recovered jobs retain raw `run_id`, `run_attempt`, `head_sha`, status and URLs,
+plus `discovery: { source: 'check-runs', checkRunId, runAttempt }`. Individual job
+log matches carry `source: 'job-log'`, `jobAttempt` and `sha`. No run-attempt ZIP
+is used as a substitute for the selected job's current log. In particular, a
+successful historical log cannot establish that a newer attempt passed.
+
+Incomplete or unreadable fallback evidence throws the exported
+`JobsUnavailableError`, whose `.evidence` includes
+`status: 'infrastructure-unavailable'`, `reason`, `runUrl`, `runAttempt`, `sha`
+and `nextAction`. `repair verify` returns those fields with `success:false` and
+exit code 6; log discovery returns the unavailable evidence and bulk scans keep
+it in their error reports. Missing jobs never imply healthy CI. An outage never
+changes selected job retries into a run-wide retry. Doctor also requests only
+causal job reruns after verified setting repairs.
+
+The [read-only job discovery example](../examples/discover-actions-jobs.js)
+prints these fields. Private repositories require Actions read permission and
+Checks read permission for the fallback; inaccessible evidence stays unavailable.
+
+```sh
+node examples/discover-actions-jobs.js owner/project 123456
+node --test --test-timeout=30000 tests/job-recovery.test.js tests/repair-verification.test.js tests/repair-cli.test.js tests/doctor.test.js
+```
 
 For changed workflow code, add a verified workflow change and an explicit new
 revision:

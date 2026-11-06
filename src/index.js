@@ -70,6 +70,7 @@ export {
   createRepoManager as repos,
 } from './github/repos.js';
 export { createRunManager, createRunManager as runs } from './github/runs.js';
+export { JobsUnavailableError } from './github/jobs.js';
 export {
   createSecretHealth,
   createSecretHealth as health,
