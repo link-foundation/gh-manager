@@ -17,7 +17,7 @@ initial inspection.
 - [x] Cover stale IDs, unrelated same-SHA runs, partial/malformed evidence,
       attempt polling and mutation scope with small automated regressions.
 - [x] Update declarations, documentation, reusable example and release changeset.
-- [ ] Run focused checks; commit atomic changes and push only the prepared branch.
+- [x] Run focused checks; commit atomic changes and push only the prepared branch.
 - [ ] Merge current main, review full PR diff, refresh all feedback streams,
       update PR title/body with reproduction and requirement/test evidence.
 - [ ] Verify CI timestamps/SHA for final commit, save and inspect any failed logs,
@@ -28,3 +28,10 @@ cannot establish a complete inventory, a typed unavailable error carries the
 structured infrastructure status; repair verification and log discovery expose
 that status as evidence instead of reporting success. Partial reruns may carry
 forward jobs from earlier attempts, so attempt provenance must remain explicit.
+
+Local evidence: 98 related tests passed; the additional doctor freshness cases
+bring the focused recovery/doctor group to 53 passing tests. Strict public type
+checking and `npm run check` passed. The initial CI run for `9d473eb` failed only
+the duplication gate: `ci-logs/checks-42167842758.log`, lines 1240–1242, identified
+the shared repair input fixture. The follow-up extracts the shared fixture and
+manager setup, and the duplication check now passes without new clones.

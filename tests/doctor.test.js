@@ -52,7 +52,7 @@ describe('doctor reports and repairs', () => {
     expect(finding.evidence.map((e) => e.kind)).toEqual(['file', 'log']);
     expect(finding.evidence[1].line).toBe(2);
   });
-  it('repairs Pages, verifies the API state and reruns only the causal failed run', async () => {
+  it('repairs Pages, verifies the API state and reruns only the causal failed job', async () => {
     const api = doctorApi({
       site: null,
       log: 'Ensure GitHub Pages has been enabled',

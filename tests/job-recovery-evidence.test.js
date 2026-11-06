@@ -1,23 +1,15 @@
 import { describe, it } from 'test-anywhere';
 import assert from 'node:assert/strict';
-import { createRunManager, createRepairVerifier } from '../src/index.js';
+import { createRepairVerifier } from '../src/index.js';
 import {
   jobRecoveryApi,
   recoveryJob,
   recoveryCheck,
   recoverySha,
+  recoveryInput as input,
+  recoveryBase as base,
+  recoveryManager as manager,
 } from './fixtures/job-recovery-api.js';
-
-const base = '/repos/acme/one';
-const manager = (api) => createRunManager({ rest: api.rest, sleep: () => {} });
-const input = {
-  repo: 'acme/one',
-  workflow: 'release.yml',
-  runId: 1,
-  jobIds: [2],
-  changes: [{ kind: 'setting', changed: true, verified: true }],
-  timeout: 0,
-};
 
 describe('fallback evidence completeness and races', () => {
   it('paginates all source checks before recovering only the exact run', async () => {
@@ -112,7 +104,7 @@ describe('fallback evidence completeness and races', () => {
       (e) => e.evidence?.reason === 'run-changed-during-discovery'
     );
   });
-  it('rejects mismatched individual status rather than trusting a successful check', async () => {
+  it('rejects mismatched individual and check status', async () => {
     const api = jobRecoveryApi({
       mutateChecks: (cs) => cs.map((c) => ({ ...c, conclusion: 'success' })),
     });

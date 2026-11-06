@@ -1,8 +1,21 @@
 import { actionsApi } from './actions-api.js';
+import { createRunManager } from '../../src/github/runs.js';
 
 export const recoverySha = 'a'.repeat(40);
-const base = '/repos/acme/one';
+export const recoveryInput = {
+  repo: 'acme/one',
+  workflow: 'release.yml',
+  runId: 1,
+  jobIds: [2],
+  changes: [{ kind: 'setting', changed: true, verified: true }],
+  timeout: 0,
+};
+export const recoveryBase = '/repos/acme/one';
+const base = recoveryBase;
 const runUrl = 'https://github.com/acme/one/actions/runs/1';
+
+export const recoveryManager = (api, extra = {}) =>
+  createRunManager({ rest: api.rest, sleep: () => {}, ...extra });
 
 export function recoveryJob(id, name, attempt = 1, conclusion = 'failure') {
   return {

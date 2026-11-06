@@ -1,24 +1,15 @@
 import { describe, it } from 'test-anywhere';
 import assert from 'node:assert/strict';
-import { createRunManager, createRepairVerifier } from '../src/index.js';
+import { createRepairVerifier } from '../src/index.js';
 import {
   jobRecoveryApi,
   recoveryJob,
   recoveryCheck,
   recoverySha,
+  recoveryInput as input,
+  recoveryBase as base,
+  recoveryManager as manager,
 } from './fixtures/job-recovery-api.js';
-
-const base = '/repos/acme/one';
-const manager = (api, extra = {}) =>
-  createRunManager({ rest: api.rest, sleep: () => {}, ...extra });
-const input = {
-  repo: 'acme/one',
-  workflow: 'release.yml',
-  runId: 1,
-  jobIds: [2],
-  changes: [{ kind: 'setting', changed: true, verified: true }],
-  timeout: 0,
-};
 
 describe('job-list infrastructure recovery', () => {
   it('bounds 502 retries and recovers verified individual jobs with provenance', async () => {

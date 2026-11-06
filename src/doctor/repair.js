@@ -64,6 +64,20 @@ async function rerunCausalJobs(entry, repo, id, { runs, rest }) {
         run
       );
     }
+    const before = await runs.get(repo, id);
+    if (
+      before.status !== 'completed' ||
+      before.run_attempt !== run.run_attempt ||
+      before.head_sha !== run.head_sha ||
+      (job.discovery && job.discovery.runAttempt !== run.run_attempt)
+    ) {
+      throw new JobsUnavailableError(
+        repo,
+        id,
+        'run-changed-before-rerun',
+        before
+      );
+    }
     await rest.request(`${repoPath(repo)}/actions/jobs/${job.id}/rerun`, {
       method: 'POST',
     });
